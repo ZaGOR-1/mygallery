@@ -479,6 +479,7 @@ label {
 }
 
 input,
+select,
 textarea {
     width: 100%;
     border: 1px solid var(--line);
@@ -489,9 +490,26 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
     outline: 2px solid rgba(214, 167, 86, 0.35);
     border-color: var(--accent);
+}
+
+.filter-panel {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.4fr) minmax(160px, 1fr) minmax(140px, 0.8fr) minmax(140px, 0.8fr) minmax(170px, 1fr) auto;
+    gap: 14px;
+    align-items: end;
+    margin-bottom: 28px;
+    padding: 18px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+}
+
+.filter-actions {
+    display: flex;
+    gap: 8px;
 }
 
 .alert {
@@ -585,6 +603,14 @@ textarea:focus {
         grid-column: 1 / -1;
         justify-content: flex-start;
     }
+
+    .filter-panel {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .filter-actions {
+        grid-column: 1 / -1;
+    }
 }
 
 @media (max-width: 480px) {
@@ -604,6 +630,15 @@ textarea:focus {
     .button,
     button.button {
         width: 100%;
+    }
+
+    .filter-panel {
+        grid-template-columns: 1fr;
+        padding: 14px;
+    }
+
+    .filter-actions {
+        flex-direction: column;
     }
 
     .lightbox {

@@ -229,6 +229,38 @@ function get_int(string $key): ?int
     return $value === false ? null : $value;
 }
 
+function get_query_string(string $key, int $maxLength = 255): string
+{
+    $value = filter_input(INPUT_GET, $key, FILTER_UNSAFE_RAW);
+
+    if (!is_string($value)) {
+        return '';
+    }
+
+    $value = preg_replace('/[\x00-\x1F\x7F]/u', '', $value) ?? '';
+
+    return text_limit(trim($value), $maxLength);
+}
+
+function url_with_query(string $path, array $params = []): string
+{
+    $cleanParams = [];
+
+    foreach ($params as $key => $value) {
+        if ($value === null || $value === '') {
+            continue;
+        }
+
+        $cleanParams[$key] = $value;
+    }
+
+    if (empty($cleanParams)) {
+        return url($path);
+    }
+
+    return url($path . '?' . http_build_query($cleanParams));
+}
+
 function uploads_path(string $folder, string $filename = ''): string
 {
     $path = public_path('uploads' . DIRECTORY_SEPARATOR . $folder);
