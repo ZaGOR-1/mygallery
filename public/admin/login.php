@@ -68,41 +68,64 @@ function register_failed_login(string $username, string $ip): void
     $maxAttempts = (int) $config['LOGIN_MAX_ATTEMPTS'];
     $lockSeconds = (int) $config['LOGIN_LOCK_SECONDS'];
     $username = normalize_login_username($username);
+    $pdo = db();
 
-    $stmt = db()->prepare('SELECT attempts FROM login_attempts WHERE username = :username AND ip_address = :ip_address LIMIT 1');
-    $stmt->execute([
-        'username' => $username,
-        'ip_address' => $ip,
-    ]);
+    $pdo->beginTransaction();
 
-    $attempt = $stmt->fetch();
-    $attempts = (int) ($attempt['attempts'] ?? 0) + 1;
-    $lockedUntil = null;
+    try {
+        $stmt = $pdo->prepare('SELECT attempts, locked_until FROM login_attempts WHERE username = :username AND ip_address = :ip_address LIMIT 1 FOR UPDATE');
+        $stmt->execute([
+            'username' => $username,
+            'ip_address' => $ip,
+        ]);
 
-    if ($attempts >= $maxAttempts) {
-        $lockedUntil = date('Y-m-d H:i:s', time() + $lockSeconds);
-        $attempts = 0;
+        $attempt = $stmt->fetch();
+        $lockedUntil = null;
+        $attempts = 1;
+
+        if ($attempt) {
+            $currentLock = strtotime((string) ($attempt['locked_until'] ?? ''));
+
+            if ($currentLock !== false && $currentLock > time()) {
+                $pdo->commit();
+                return;
+            }
+
+            $attempts = (int) ($attempt['attempts'] ?? 0) + 1;
+        }
+
+        if ($attempts >= $maxAttempts) {
+            $lockedUntil = date('Y-m-d H:i:s', time() + $lockSeconds);
+            $attempts = 0;
+        }
+
+        if ($attempt) {
+            $stmt = $pdo->prepare(
+                'UPDATE login_attempts
+                SET attempts = :attempts, locked_until = :locked_until
+                WHERE username = :username AND ip_address = :ip_address'
+            );
+        } else {
+            $stmt = $pdo->prepare(
+                'INSERT INTO login_attempts (username, ip_address, attempts, locked_until)
+                VALUES (:username, :ip_address, :attempts, :locked_until)'
+            );
+        }
+
+        $stmt->execute([
+            'username' => $username,
+            'ip_address' => $ip,
+            'attempts' => $attempts,
+            'locked_until' => $lockedUntil,
+        ]);
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
     }
-
-    if ($attempt) {
-        $stmt = db()->prepare(
-            'UPDATE login_attempts
-            SET attempts = :attempts, locked_until = :locked_until
-            WHERE username = :username AND ip_address = :ip_address'
-        );
-    } else {
-        $stmt = db()->prepare(
-            'INSERT INTO login_attempts (username, ip_address, attempts, locked_until)
-            VALUES (:username, :ip_address, :attempts, :locked_until)'
-        );
-    }
-
-    $stmt->execute([
-        'username' => $username,
-        'ip_address' => $ip,
-        'attempts' => $attempts,
-        'locked_until' => $lockedUntil,
-    ]);
 }
 
 function clear_failed_logins(string $username, string $ip): void
@@ -134,7 +157,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($lockSecondsLeft > 0) {
                 $errors[] = 'Забагато невдалих спроб. Спробуйте ще раз через ' . $lockSecondsLeft . ' с.';
             }
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            app_log_exception($exception, 'Login rate limit check failed');
             $errors[] = 'Не вдалося перевірити ліміт спроб входу. Перевірте структуру бази даних.';
         }
     }
@@ -153,7 +177,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             register_failed_login($username, $ip);
             $errors[] = 'Неправильний логін або пароль.';
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            app_log_exception($exception, 'Login failed');
             $errors[] = 'Не вдалося виконати вхід. Перевірте налаштування бази даних.';
         }
     }

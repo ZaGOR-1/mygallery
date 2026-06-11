@@ -21,6 +21,8 @@ function require_admin(): void
         set_flash('error', 'Увійдіть в адміністративну панель.');
         redirect('admin/login.php');
     }
+
+    send_admin_cache_headers();
 }
 
 function login_admin(array $admin): void

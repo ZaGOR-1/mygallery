@@ -18,6 +18,14 @@ function public_path(string $path = ''): string
     return $path === '' ? $public : $public . DIRECTORY_SEPARATOR . $path;
 }
 
+function storage_path(string $path = ''): string
+{
+    $storage = project_root_path('storage');
+    $path = trim($path, DIRECTORY_SEPARATOR);
+
+    return $path === '' ? $storage : $storage . DIRECTORY_SEPARATOR . $path;
+}
+
 function app_config(): array
 {
     static $config = null;
@@ -95,6 +103,47 @@ function redirect(string $path): never
     exit;
 }
 
+function app_debug(): bool
+{
+    return (bool) (app_config()['APP_DEBUG'] ?? false);
+}
+
+function configure_runtime(): void
+{
+    $displayErrors = app_debug() ? '1' : '0';
+    $logDir = storage_path('logs');
+
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0755, true);
+    }
+
+    ini_set('display_errors', $displayErrors);
+    ini_set('display_startup_errors', $displayErrors);
+    ini_set('log_errors', '1');
+    ini_set('error_log', $logDir . DIRECTORY_SEPARATOR . 'php-error.log');
+}
+
+function app_log(string $message): void
+{
+    $logDir = storage_path('logs');
+
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0755, true);
+    }
+
+    $line = '[' . date('Y-m-d H:i:s') . '] ' . str_replace(["\r", "\n"], ' ', $message) . PHP_EOL;
+    $logFile = $logDir . DIRECTORY_SEPARATOR . 'app.log';
+
+    if (!@file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX)) {
+        error_log($message);
+    }
+}
+
+function app_log_exception(Throwable $exception, string $context): void
+{
+    app_log($context . ': ' . $exception::class . ' - ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+}
+
 function is_https_request(): bool
 {
     return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
@@ -143,6 +192,17 @@ function send_security_headers(): void
     header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
 }
 
+function send_admin_cache_headers(): void
+{
+    if (headers_sent()) {
+        return;
+    }
+
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+}
+
 function set_flash(string $type, string $message): void
 {
     start_session();
@@ -181,6 +241,20 @@ function uploads_url(string $folder, string $filename): string
     return url('uploads/' . $folder . '/' . rawurlencode($filename));
 }
 
+function originals_path(string $filename = ''): string
+{
+    $path = storage_path('originals');
+
+    return $filename === '' ? $path : $path . DIRECTORY_SEPARATOR . $filename;
+}
+
+function trash_path(string $filename = ''): string
+{
+    $path = storage_path('trash');
+
+    return $filename === '' ? $path : $path . DIRECTORY_SEPARATOR . $filename;
+}
+
 function valid_photo_filename(string $filename): bool
 {
     return preg_match('/\A[a-f0-9]{32}\.jpg\z/', $filename) === 1;
@@ -209,11 +283,35 @@ function safe_existing_upload_file_path(string $folder, string $filename): ?stri
     return str_starts_with($filePath, $basePath) ? $filePath : null;
 }
 
+function safe_existing_storage_file_path(string $folder, string $filename): ?string
+{
+    if (!valid_photo_filename($filename)) {
+        return null;
+    }
+
+    $basePath = realpath(storage_path($folder));
+
+    if ($basePath === false) {
+        return null;
+    }
+
+    $filePath = realpath($basePath . DIRECTORY_SEPARATOR . $filename);
+
+    if ($filePath === false) {
+        return null;
+    }
+
+    $basePath = rtrim($basePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+
+    return str_starts_with($filePath, $basePath) ? $filePath : null;
+}
+
 function ensure_upload_folders(): array
 {
     $errors = [];
     $folders = [
-        uploads_path('originals'),
+        originals_path(),
+        trash_path(),
         uploads_path('large'),
         uploads_path('thumbnails'),
     ];
@@ -291,6 +389,38 @@ function upload_server_limit(): int
     return empty($limits) ? 0 : min($limits);
 }
 
+function memory_limit_bytes(): int
+{
+    $limit = size_to_bytes((string) ini_get('memory_limit'));
+
+    return $limit > 0 ? $limit : 0;
+}
+
+function validate_gd_memory_limit(int $width, int $height): array
+{
+    $memoryLimit = memory_limit_bytes();
+
+    if ($memoryLimit === 0) {
+        return [];
+    }
+
+    $pixels = $width * $height;
+    $bytesPerPixel = 4;
+    $sourceImage = $pixels * $bytesPerPixel;
+    $largePixels = min($width, (int) app_config()['LARGE_MAX_WIDTH']) * $height;
+    $largeImage = $largePixels * $bytesPerPixel;
+    $thumbnailPixels = min($width, 600) * $height;
+    $thumbnailImage = $thumbnailPixels * $bytesPerPixel;
+    $estimatedNeed = (int) (($sourceImage * 2 + $largeImage + $thumbnailImage) * 1.35);
+    $available = $memoryLimit - memory_get_usage(true);
+
+    if ($available > 0 && $estimatedNeed > $available) {
+        return ['Зображення завелике для обробки у поточному memory_limit PHP. Спробуйте менший JPEG або збільшіть memory_limit.'];
+    }
+
+    return [];
+}
+
 function validate_image_limits(array $imageInfo): array
 {
     $config = app_config();
@@ -315,6 +445,8 @@ function validate_image_limits(array $imageInfo): array
             rtrim(rtrim(number_format($maxPixels / 1000000, 1, '.', ''), '0'), '.')
         );
     }
+
+    $errors = array_merge($errors, validate_gd_memory_limit($width, $height));
 
     return $errors;
 }
@@ -479,7 +611,7 @@ function apply_orientation(GdImage $image, mixed $orientation): GdImage
     }
 
     if ($orientation === 5) {
-        imageflip($image, IMG_FLIP_VERTICAL);
+        imageflip($image, IMG_FLIP_HORIZONTAL);
         $rotated = imagerotate($image, 90, 0);
         return $rotated ?: $image;
     }
@@ -491,7 +623,7 @@ function apply_orientation(GdImage $image, mixed $orientation): GdImage
 
     if ($orientation === 7) {
         imageflip($image, IMG_FLIP_HORIZONTAL);
-        $rotated = imagerotate($image, 90, 0);
+        $rotated = imagerotate($image, -90, 0);
         return $rotated ?: $image;
     }
 
@@ -503,34 +635,22 @@ function apply_orientation(GdImage $image, mixed $orientation): GdImage
     return $image;
 }
 
-function save_corrected_original(string $source, string $destination, mixed $orientation): array
+function oriented_image_dimensions(int $width, int $height, mixed $orientation): array
 {
-    $image = create_image_from_jpeg($source);
+    $orientation = (int) $orientation;
 
-    if (!$image instanceof GdImage) {
-        throw new RuntimeException('Не вдалося прочитати JPEG-зображення.');
+    if (in_array($orientation, [5, 6, 7, 8], true)) {
+        return [$height, $width];
     }
-
-    $corrected = apply_orientation($image, $orientation);
-    if (!imagejpeg($corrected, $destination, 90)) {
-        if ($corrected !== $image) {
-            imagedestroy($corrected);
-        }
-
-        imagedestroy($image);
-        throw new RuntimeException('Не вдалося зберегти JPEG-зображення.');
-    }
-
-    $width = imagesx($corrected);
-    $height = imagesy($corrected);
-
-    if ($corrected !== $image) {
-        imagedestroy($corrected);
-    }
-
-    imagedestroy($image);
 
     return [$width, $height];
+}
+
+function move_uploaded_original(string $source, string $destination): void
+{
+    if (!move_uploaded_file($source, $destination)) {
+        throw new RuntimeException('Не вдалося зберегти оригінальний JPEG-файл.');
+    }
 }
 
 function create_resized_jpeg(string $source, string $destination, int $maxWidth, int $quality): void
@@ -564,14 +684,58 @@ function create_resized_jpeg(string $source, string $destination, int $maxWidth,
     imagedestroy($image);
 }
 
-function create_thumbnail(string $source, string $destination, int $maxWidth = 600): void
+function create_oriented_resized_jpeg(string $source, string $destination, int $maxWidth, int $quality, mixed $orientation): void
 {
-    create_resized_jpeg($source, $destination, $maxWidth, 85);
+    $image = create_image_from_jpeg($source);
+
+    if (!$image instanceof GdImage) {
+        throw new RuntimeException('Не вдалося створити зменшену копію.');
+    }
+
+    $oriented = apply_orientation($image, $orientation);
+    $width = imagesx($oriented);
+    $height = imagesy($oriented);
+
+    if ($width < 1 || $height < 1) {
+        if ($oriented !== $image) {
+            imagedestroy($oriented);
+        }
+
+        imagedestroy($image);
+        throw new RuntimeException('Некоректні розміри JPEG-зображення.');
+    }
+
+    $newWidth = min($maxWidth, $width);
+    $newHeight = (int) round($height * ($newWidth / $width));
+    $resized = imagecreatetruecolor($newWidth, $newHeight);
+    imagecopyresampled($resized, $oriented, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+
+    if (!imagejpeg($resized, $destination, $quality)) {
+        imagedestroy($resized);
+        if ($oriented !== $image) {
+            imagedestroy($oriented);
+        }
+
+        imagedestroy($image);
+        throw new RuntimeException('Не вдалося зберегти зменшену копію.');
+    }
+
+    imagedestroy($resized);
+    if ($oriented !== $image) {
+        imagedestroy($oriented);
+    }
+
+    imagedestroy($image);
 }
 
-function create_large_image(string $source, string $destination): void
+function create_thumbnail(string $source, string $destination, mixed $orientation, int $maxWidth = 600): void
 {
-    create_resized_jpeg($source, $destination, (int) app_config()['LARGE_MAX_WIDTH'], 86);
+    create_oriented_resized_jpeg($source, $destination, $maxWidth, 85, $orientation);
+}
+
+function create_large_image(string $source, string $destination, mixed $orientation): void
+{
+    create_oriented_resized_jpeg($source, $destination, (int) app_config()['LARGE_MAX_WIDTH'], 86, $orientation);
 }
 
 function photo_display_url(array $photo): string
@@ -582,24 +746,31 @@ function photo_display_url(array $photo): string
         return uploads_url('large', $filename);
     }
 
-    return uploads_url('originals', $filename);
+    return uploads_url('thumbnails', (string) $photo['thumbnail_filename']);
 }
 
 function photo_file_paths(array $photo): array
 {
     $paths = [];
-    $files = [
-        ['originals', (string) ($photo['filename'] ?? '')],
-        ['large', (string) ($photo['filename'] ?? '')],
-        ['thumbnails', (string) ($photo['thumbnail_filename'] ?? '')],
-    ];
+    $filename = (string) ($photo['filename'] ?? '');
+    $thumbnail = (string) ($photo['thumbnail_filename'] ?? '');
+    $storageOriginal = safe_existing_storage_file_path('originals', $filename);
+    $legacyOriginal = safe_existing_upload_file_path('originals', $filename);
 
-    foreach ($files as [$folder, $filename]) {
-        $path = safe_existing_upload_file_path($folder, $filename);
-
+    foreach ([$storageOriginal, $legacyOriginal] as $path) {
         if ($path !== null) {
             $paths[] = $path;
         }
+    }
+
+    $large = safe_existing_upload_file_path('large', $filename);
+    if ($large !== null) {
+        $paths[] = $large;
+    }
+
+    $thumbnailPath = safe_existing_upload_file_path('thumbnails', $thumbnail);
+    if ($thumbnailPath !== null) {
+        $paths[] = $thumbnailPath;
     }
 
     return $paths;
@@ -647,3 +818,52 @@ function delete_photo_files(array $photo): array
 
     return $errors;
 }
+
+function move_photo_files_to_trash(array $photo): array
+{
+    $moved = [];
+
+    foreach (photo_file_paths($photo) as $file) {
+        $trashName = bin2hex(random_bytes(8)) . '-' . basename($file);
+        $trashFile = trash_path($trashName);
+
+        if (!rename($file, $trashFile)) {
+            restore_moved_photo_files($moved);
+            throw new RuntimeException('Не вдалося перемістити файл у кошик: ' . basename($file));
+        }
+
+        $moved[] = ['from' => $file, 'trash' => $trashFile];
+    }
+
+    return $moved;
+}
+
+function restore_moved_photo_files(array $movedFiles): array
+{
+    $errors = [];
+
+    for ($i = count($movedFiles) - 1; $i >= 0; $i--) {
+        $file = $movedFiles[$i];
+
+        if (is_file($file['trash']) && !rename($file['trash'], $file['from'])) {
+            $errors[] = 'Не вдалося повернути файл ' . basename((string) $file['from']) . '.';
+        }
+    }
+
+    return $errors;
+}
+
+function remove_trashed_photo_files(array $movedFiles): array
+{
+    $errors = [];
+
+    foreach ($movedFiles as $file) {
+        if (is_file($file['trash']) && !@unlink($file['trash'])) {
+            $errors[] = 'Не вдалося остаточно видалити файл ' . basename((string) $file['trash']) . '.';
+        }
+    }
+
+    return $errors;
+}
+
+configure_runtime();

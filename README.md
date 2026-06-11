@@ -29,14 +29,30 @@ public/                    єдина публічна папка сайту
 public/admin/              адміністративні сторінки
 public/assets/             CSS і JavaScript
 public/.htaccess           переносимі Apache-правила без php_value
-public/uploads/originals   оригінальні JPEG
 public/uploads/large       оптимізовані веб-версії
 public/uploads/thumbnails  прев’ю
+storage/originals          приватні byte-for-byte оригінальні JPEG
+storage/trash              тимчасовий кошик під час видалення
+storage/logs               приватні логи застосунку
 tools/setup.php            консольне створення першого адміністратора
 tools/cleanup_orphans.php  перевірка зайвих файлів у uploads
 ```
 
-Apache має дивитися саме в `public/`. Папки `app/`, `config/`, `database/`, `tools/` і `README.md` не повинні бути доступні напряму через браузер.
+Apache має дивитися саме в `public/`. Папки `app/`, `config/`, `database/`, `storage/`, `tools/` і `README.md` не повинні бути доступні напряму через браузер.
+
+Рекомендована структура для оригіналів:
+
+```text
+project/
+├── public/
+│   └── uploads/
+│       ├── large/
+│       └── thumbnails/
+└── storage/
+    └── originals/
+```
+
+Нові завантаження зберігають оригінальний JPEG у `storage/originals` без повторного стиснення через GD. Старі файли, які вже були повторно збережені через GD у попередніх версіях, неможливо автоматично відновити. Щоб повернути початковий EXIF, ICC-профіль, Nikon MakerNotes і якість, потрібно повторно завантажити їх із початкових файлів.
 
 ## Встановлення на WampServer у Windows
 
@@ -155,10 +171,10 @@ php tools/setup.php
 
 ```bash
 sudo chown -R root:www-data /var/www/mygallery
-sudo chown -R www-data:www-data /var/www/mygallery/public/uploads/originals /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
+sudo chown -R www-data:www-data /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
 sudo find /var/www/mygallery -type d -exec chmod 750 {} \;
 sudo find /var/www/mygallery -type f -exec chmod 640 {} \;
-sudo chmod 750 /var/www/mygallery/public/uploads/originals /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
+sudo chmod 750 /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
 ```
 
 Не використовуйте `chmod 777`.
@@ -198,7 +214,7 @@ sudo systemctl reload apache2
 
 1. Експортуйте базу через phpMyAdmin або `mysqldump`.
 2. Скопіюйте файли проєкту.
-3. Скопіюйте папки `public/uploads/originals`, `public/uploads/large` і `public/uploads/thumbnails`.
+3. Скопіюйте папки `storage/originals`, `public/uploads/large` і `public/uploads/thumbnails`. Якщо переносите стару версію, де оригінали ще були в `public/uploads/originals`, перенесіть їх у `storage/originals`.
 4. Імпортуйте дамп БД на Linux.
 5. Оновіть `config/database.php` і `APP_URL`.
 6. Налаштуйте Apache так, щоб `DocumentRoot` вказував на `public/`.
@@ -209,7 +225,7 @@ sudo systemctl reload apache2
 Регулярно зберігайте:
 
 - дамп бази `my_photo_gallery`;
-- папки `public/uploads/originals`, `public/uploads/large` і `public/uploads/thumbnails`;
+- папки `storage/originals`, `public/uploads/large` і `public/uploads/thumbnails`;
 - файли `config/config.php` і `config/database.php` окремо від публічного репозиторію.
 
 Приклад дампу:
@@ -238,6 +254,7 @@ php tools/cleanup_orphans.php --delete
 - налаштуйте HTTPS через Let’s Encrypt або інший сертифікат;
 - переконайтеся, що Apache відкриває тільки `public/`;
 - переконайтеся, що PHP-файли в `public/uploads` не виконуються.
+- переконайтеся, що `storage/` не входить у `DocumentRoot`;
 - вимкніть зайві version headers:
 
 ```ini
@@ -252,6 +269,19 @@ ServerSignature Off
 Застосунок також віддає базові security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` і `Content-Security-Policy`.
 Додатково налаштовано `Permissions-Policy` і прості cache headers для `public/assets` та JPEG у `public/uploads`.
 Для cache headers Apache має мати увімкнені `mod_headers` і `mod_expires`, а для `.htaccess` має бути дозволено `AllowOverride FileInfo` або `AllowOverride All`.
+
+## Передача ZIP-архіву
+
+Якщо створюєте ZIP для передачі проєкту, не включайте:
+
+- `.git/`;
+- `config/database.php`;
+- приватні фотографії зі `storage/originals`;
+- реальні файли з `public/uploads/large` і `public/uploads/thumbnails`;
+- логи зі `storage/logs`;
+- локальні backup/tmp/archive-файли.
+
+Залишайте в архіві `config/database.example.php`, `database/schema.sql`, код проєкту і `.gitkeep`-файли для порожніх папок.
 
 ## Після встановлення
 

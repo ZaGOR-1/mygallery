@@ -60,6 +60,7 @@ try {
 
 $pageTitle = $photo['title'] . ' - ' . app_name();
 $exifRows = normalized_exif_for_display($photo['exif_json'], $photo);
+$photoImageUrl = photo_display_url($photo);
 
 require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php';
 ?>
@@ -75,14 +76,21 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
     </header>
 
     <figure class="large-photo">
-        <img
-            src="<?= h(photo_display_url($photo)) ?>"
-            alt="<?= h($photo['title']) ?>"
-            <?php if ((int) $photo['width'] > 0 && (int) $photo['height'] > 0): ?>
-                width="<?= h((string) (int) $photo['width']) ?>"
-                height="<?= h((string) (int) $photo['height']) ?>"
-            <?php endif; ?>
+        <a
+            class="large-photo-link"
+            href="<?= h($photoImageUrl) ?>"
+            data-lightbox-src="<?= h($photoImageUrl) ?>"
+            data-lightbox-title="<?= h($photo['title']) ?>"
         >
+            <img
+                src="<?= h($photoImageUrl) ?>"
+                alt="<?= h($photo['title']) ?>"
+                <?php if ((int) $photo['width'] > 0 && (int) $photo['height'] > 0): ?>
+                    width="<?= h((string) (int) $photo['width']) ?>"
+                    height="<?= h((string) (int) $photo['height']) ?>"
+                <?php endif; ?>
+            >
+        </a>
     </figure>
 
     <nav class="photo-nav" aria-label="Навігація між фотографіями">

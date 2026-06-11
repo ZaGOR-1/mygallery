@@ -19,9 +19,10 @@ try {
 }
 
 $expected = [
-    'originals' => [],
-    'large' => [],
-    'thumbnails' => [],
+    'storage:originals' => [],
+    'public:originals' => [],
+    'public:large' => [],
+    'public:thumbnails' => [],
 ];
 
 foreach ($photos as $photo) {
@@ -29,25 +30,28 @@ foreach ($photos as $photo) {
     $thumbnail = (string) ($photo['thumbnail_filename'] ?? '');
 
     if (valid_photo_filename($filename)) {
-        $expected['originals'][$filename] = true;
-        $expected['large'][$filename] = true;
+        $expected['storage:originals'][$filename] = true;
+        $expected['public:originals'][$filename] = true;
+        $expected['public:large'][$filename] = true;
     }
 
     if (valid_photo_filename($thumbnail)) {
-        $expected['thumbnails'][$thumbnail] = true;
+        $expected['public:thumbnails'][$thumbnail] = true;
     }
 }
 
 $orphans = [];
 
-foreach ($expected as $folder => $knownFiles) {
-    $files = glob(uploads_path($folder, '*.jpg')) ?: [];
+foreach ($expected as $location => $knownFiles) {
+    [$root, $folder] = explode(':', $location, 2);
+    $basePath = $root === 'storage' ? storage_path($folder) : uploads_path($folder);
+    $files = glob($basePath . DIRECTORY_SEPARATOR . '*.jpg') ?: [];
 
     foreach ($files as $file) {
         $filename = basename($file);
 
         if (!isset($knownFiles[$filename])) {
-            $orphans[] = [$folder, $filename];
+            $orphans[] = [$root, $folder, $filename];
         }
     }
 }
@@ -59,8 +63,8 @@ if (empty($orphans)) {
 
 echo "Знайдено orphan-файли: " . count($orphans) . "\n";
 
-foreach ($orphans as [$folder, $filename]) {
-    echo $folder . DIRECTORY_SEPARATOR . $filename . "\n";
+foreach ($orphans as [$root, $folder, $filename]) {
+    echo $root . DIRECTORY_SEPARATOR . $folder . DIRECTORY_SEPARATOR . $filename . "\n";
 }
 
 if (!$delete) {
@@ -70,12 +74,14 @@ if (!$delete) {
 
 $errors = 0;
 
-foreach ($orphans as [$folder, $filename]) {
-    $path = safe_existing_upload_file_path($folder, $filename);
+foreach ($orphans as [$root, $folder, $filename]) {
+    $path = $root === 'storage'
+        ? safe_existing_storage_file_path($folder, $filename)
+        : safe_existing_upload_file_path($folder, $filename);
 
     if ($path === null || !@unlink($path)) {
         $errors++;
-        fwrite(STDERR, "Не вдалося видалити: " . $folder . DIRECTORY_SEPARATOR . $filename . "\n");
+        fwrite(STDERR, "Не вдалося видалити: " . $root . DIRECTORY_SEPARATOR . $folder . DIRECTORY_SEPARATOR . $filename . "\n");
     }
 }
 

@@ -23,7 +23,17 @@ function csrf_field(): string
 function verify_csrf(): bool
 {
     start_session();
-    $token = $_POST['csrf_token'] ?? '';
+    $sessionToken = $_SESSION['csrf_token'] ?? null;
+    $token = $_POST['csrf_token'] ?? null;
 
-    return is_string($token) && hash_equals((string) ($_SESSION['csrf_token'] ?? ''), $token);
+    if (
+        !is_string($sessionToken) ||
+        !is_string($token) ||
+        $sessionToken === '' ||
+        $token === ''
+    ) {
+        return false;
+    }
+
+    return hash_equals($sessionToken, $token);
 }

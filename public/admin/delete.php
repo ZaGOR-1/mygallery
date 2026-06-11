@@ -45,18 +45,45 @@ if (!empty($fileErrors)) {
     redirect('admin/index.php');
 }
 
-try {
-    $stmt = db()->prepare('DELETE FROM photos WHERE id = :id');
-    $stmt->execute(['id' => $id]);
-} catch (Throwable) {
-    set_flash('error', 'Не вдалося видалити запис із бази даних. Файли залишено на місці.');
+$folderErrors = ensure_upload_folders();
+
+if (!empty($folderErrors)) {
+    set_flash('error', implode(' ', $folderErrors));
     redirect('admin/index.php');
 }
 
-$fileErrors = delete_photo_files($photo);
+$movedFiles = [];
+$pdo = db();
+
+try {
+    $movedFiles = move_photo_files_to_trash($photo);
+    $pdo->beginTransaction();
+
+    $stmt = $pdo->prepare('DELETE FROM photos WHERE id = :id');
+    $stmt->execute(['id' => $id]);
+    $pdo->commit();
+} catch (Throwable $exception) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+
+    app_log_exception($exception, 'Delete failed');
+    $restoreErrors = restore_moved_photo_files($movedFiles);
+    $message = 'Не вдалося видалити фотографію. Файли залишено на місці.';
+
+    if (!empty($restoreErrors)) {
+        $message .= ' ' . implode(' ', $restoreErrors);
+    }
+
+    set_flash('error', $message);
+    redirect('admin/index.php');
+}
+
+$fileErrors = remove_trashed_photo_files($movedFiles);
 
 if (!empty($fileErrors)) {
-    set_flash('error', 'Запис із бази видалено, але частину файлів не вдалося прибрати: ' . implode(' ', $fileErrors));
+    app_log('Delete cleanup warning: ' . implode(' ', $fileErrors));
+    set_flash('error', 'Запис із бази видалено, але частину тимчасових файлів не вдалося прибрати. Деталі записано в лог.');
     redirect('admin/index.php');
 }
 

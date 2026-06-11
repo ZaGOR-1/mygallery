@@ -212,6 +212,7 @@ button.button {
 
 .photo-card img {
     width: 100%;
+    height: auto;
     aspect-ratio: 4 / 3;
     object-fit: cover;
     background: #0a0a0a;
@@ -255,10 +256,157 @@ button.button {
     background: #050505;
 }
 
+.large-photo-link {
+    display: block;
+    cursor: zoom-in;
+}
+
 .large-photo img {
     width: 100%;
     max-height: 82vh;
     object-fit: contain;
+    cursor: zoom-in;
+}
+
+.lightbox-open {
+    overflow: hidden;
+}
+
+.lightbox[hidden] {
+    display: none;
+}
+
+.lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    padding: 0;
+}
+
+.lightbox-backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: rgba(0, 0, 0, 0.88);
+    cursor: zoom-out;
+}
+
+.lightbox-content {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 12px;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    padding: 16px 20px 18px;
+    box-sizing: border-box;
+}
+
+.lightbox-toolbar {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    justify-self: start;
+    border: 1px solid var(--line);
+    background: var(--panel);
+}
+
+.lightbox-zoom-button {
+    min-width: 42px;
+    height: 42px;
+    border: 0;
+    border-right: 1px solid var(--line);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+}
+
+.lightbox-zoom-button:last-child {
+    border-right: 0;
+}
+
+.lightbox-zoom-button:disabled {
+    cursor: not-allowed;
+    color: var(--muted);
+}
+
+.lightbox-zoom-reset {
+    min-width: 66px;
+    color: var(--muted);
+}
+
+.lightbox-zoom-button:focus {
+    outline: 2px solid rgba(214, 167, 86, 0.55);
+    outline-offset: -2px;
+}
+
+.lightbox-image-wrap {
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    min-height: 0;
+    height: 100%;
+    background: #050505;
+    cursor: default;
+    touch-action: none;
+}
+
+.lightbox-image-wrap.is-zoomed {
+    cursor: grab;
+}
+
+.lightbox-image-wrap.is-dragging {
+    cursor: grabbing;
+}
+
+.lightbox-image-wrap img {
+    width: var(--lightbox-fit-width, auto);
+    height: var(--lightbox-fit-height, auto);
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    user-select: none;
+    transform: translate3d(var(--lightbox-pan-x, 0), var(--lightbox-pan-y, 0), 0) scale(var(--lightbox-zoom, 1));
+    transform-origin: center center;
+    transition: transform 120ms ease;
+    will-change: transform;
+}
+
+.lightbox-image-wrap.is-dragging img {
+    transition: none;
+}
+
+.lightbox-content figcaption {
+    color: var(--muted);
+    text-align: center;
+}
+
+.lightbox-close {
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    z-index: 3;
+    width: 42px;
+    height: 42px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    font-size: 28px;
+    line-height: 1;
+}
+
+.lightbox-close:focus {
+    outline: 2px solid rgba(214, 167, 86, 0.55);
 }
 
 .photo-view-header {
@@ -379,6 +527,7 @@ textarea:focus {
 .admin-item img,
 .edit-preview img {
     width: 140px;
+    height: 105px;
     aspect-ratio: 4 / 3;
     object-fit: cover;
     background: #050505;
@@ -429,6 +578,7 @@ textarea:focus {
 
     .admin-item img {
         width: 96px;
+        height: 72px;
     }
 
     .admin-actions {
@@ -454,5 +604,18 @@ textarea:focus {
     .button,
     button.button {
         width: 100%;
+    }
+
+    .lightbox {
+        padding: 0;
+    }
+
+    .lightbox-content {
+        padding: 8px;
+    }
+
+    .lightbox-close {
+        top: 8px;
+        right: 8px;
     }
 }

@@ -64,15 +64,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $thumbnailPath = null;
 
         try {
-            $exif = read_photo_exif($tmpName);
             $filename = random_photo_name();
             $thumbnailFilename = random_photo_name();
-            $originalPath = uploads_path('originals', $filename);
+            $originalPath = originals_path($filename);
             $largePath = uploads_path('large', $filename);
             $thumbnailPath = uploads_path('thumbnails', $thumbnailFilename);
-            [$width, $height] = save_corrected_original($tmpName, $originalPath, $exif['orientation']);
-            create_large_image($originalPath, $largePath);
-            create_thumbnail($originalPath, $thumbnailPath);
+            move_uploaded_original($tmpName, $originalPath);
+
+            $exif = read_photo_exif($originalPath);
+            [$width, $height] = oriented_image_dimensions((int) $imageInfo[0], (int) $imageInfo[1], $exif['orientation']);
+            create_large_image($originalPath, $largePath, $exif['orientation']);
+            create_thumbnail($originalPath, $thumbnailPath, $exif['orientation']);
             $savedFileSize = is_file($originalPath) ? filesize($originalPath) : false;
             $exifJson = json_encode($exif['raw'], JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
@@ -107,7 +109,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             set_flash('success', 'Фотографію завантажено.');
             redirect('admin/index.php');
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            app_log_exception($exception, 'Upload failed');
+
             if (is_string($originalPath) && is_file($originalPath)) {
                 unlink($originalPath);
             }
