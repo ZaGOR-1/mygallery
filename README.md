@@ -12,7 +12,9 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 - CSRF-захист для POST-форм;
 - завантаження тільки `image/jpeg`;
 - максимальний розмір одного JPEG - 30 МБ;
+- обмеження розмірів зображення до 8000x8000 або 50 МП;
 - випадкові імена файлів на сервері;
+- веб-версія фото до 2400 px завширшки;
 - прев’ю до 600 px завширшки;
 - автоматичне виправлення орієнтації JPEG;
 - темний мінімалістичний дизайн без CSS-фреймворків.
@@ -26,8 +28,9 @@ database/schema.sql        структура бази
 public/                    єдина публічна папка сайту
 public/admin/              адміністративні сторінки
 public/assets/             CSS і JavaScript
-public/.htaccess           PHP-ліміти для завантаження великих JPEG
+public/.htaccess           переносимі Apache-правила без php_value
 public/uploads/originals   оригінальні JPEG
+public/uploads/large       оптимізовані веб-версії
 public/uploads/thumbnails  прев’ю
 tools/setup.php            консольне створення першого адміністратора
 ```
@@ -83,14 +86,18 @@ C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root --exec
 'APP_ENV' => 'local',
 'APP_DEBUG' => true,
 'UPLOAD_MAX_SIZE' => 30 * 1024 * 1024,
+'MAX_IMAGE_WIDTH' => 8000,
+'MAX_IMAGE_HEIGHT' => 8000,
+'MAX_IMAGE_PIXELS' => 50 * 1000 * 1000,
+'LARGE_MAX_WIDTH' => 2400,
 ```
 
-У `public/.htaccess` локально задано:
+Для великих JPEG також перевірте PHP-ліміти у `php.ini` або Apache/PHP-FPM конфігурації:
 
-```apache
-php_value upload_max_filesize 32M
-php_value post_max_size 40M
-php_value memory_limit 512M
+```ini
+upload_max_filesize = 32M
+post_max_size = 40M
+memory_limit = 512M
 ```
 
 11. Створіть першого адміністратора з консолі:
@@ -145,10 +152,10 @@ php tools/setup.php
 
 ```bash
 sudo chown -R root:www-data /var/www/mygallery
-sudo chown -R www-data:www-data /var/www/mygallery/public/uploads/originals /var/www/mygallery/public/uploads/thumbnails
+sudo chown -R www-data:www-data /var/www/mygallery/public/uploads/originals /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
 sudo find /var/www/mygallery -type d -exec chmod 750 {} \;
 sudo find /var/www/mygallery -type f -exec chmod 640 {} \;
-sudo chmod 750 /var/www/mygallery/public/uploads/originals /var/www/mygallery/public/uploads/thumbnails
+sudo chmod 750 /var/www/mygallery/public/uploads/originals /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
 ```
 
 Не використовуйте `chmod 777`.
@@ -185,7 +192,7 @@ sudo systemctl reload apache2
 
 1. Експортуйте базу через phpMyAdmin або `mysqldump`.
 2. Скопіюйте файли проєкту.
-3. Скопіюйте папки `public/uploads/originals` і `public/uploads/thumbnails`.
+3. Скопіюйте папки `public/uploads/originals`, `public/uploads/large` і `public/uploads/thumbnails`.
 4. Імпортуйте дамп БД на Linux.
 5. Оновіть `config/database.php` і `APP_URL`.
 6. Налаштуйте Apache так, щоб `DocumentRoot` вказував на `public/`.
@@ -196,7 +203,7 @@ sudo systemctl reload apache2
 Регулярно зберігайте:
 
 - дамп бази `my_photo_gallery`;
-- папки `public/uploads/originals` і `public/uploads/thumbnails`;
+- папки `public/uploads/originals`, `public/uploads/large` і `public/uploads/thumbnails`;
 - файли `config/config.php` і `config/database.php` окремо від публічного репозиторію.
 
 Приклад дампу:

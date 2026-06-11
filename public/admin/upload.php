@@ -50,11 +50,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($mime !== 'image/jpeg' || $imageInfo === false || ($imageInfo['mime'] ?? '') !== 'image/jpeg') {
             $errors[] = 'Дозволено завантажувати тільки JPG або JPEG.';
+        } else {
+            $errors = array_merge($errors, validate_image_limits($imageInfo));
         }
     }
 
     if (empty($errors)) {
         $originalPath = null;
+        $largePath = null;
         $thumbnailPath = null;
 
         try {
@@ -62,9 +65,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $filename = random_photo_name();
             $thumbnailFilename = random_photo_name();
             $originalPath = uploads_path('originals', $filename);
+            $largePath = uploads_path('large', $filename);
             $thumbnailPath = uploads_path('thumbnails', $thumbnailFilename);
             [$width, $height] = save_corrected_original($tmpName, $originalPath, $exif['orientation']);
+            create_large_image($originalPath, $largePath);
             create_thumbnail($originalPath, $thumbnailPath);
+            $savedFileSize = is_file($originalPath) ? filesize($originalPath) : false;
             $exifJson = json_encode($exif['raw'], JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
             $title = trim((string) ($_POST['title'] ?? ''));
@@ -86,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'title' => text_limit($title, 255),
                 'description' => trim((string) ($_POST['description'] ?? '')) ?: null,
                 'mime_type' => 'image/jpeg',
-                'file_size' => (int) $file['size'],
+                'file_size' => $savedFileSize === false ? (int) $file['size'] : (int) $savedFileSize,
                 'width' => $width,
                 'height' => $height,
                 'camera_make' => $exif['camera_make'],
@@ -101,6 +107,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Throwable) {
             if (is_string($originalPath) && is_file($originalPath)) {
                 unlink($originalPath);
+            }
+
+            if (is_string($largePath) && is_file($largePath)) {
+                unlink($largePath);
             }
 
             if (is_string($thumbnailPath) && is_file($thumbnailPath)) {

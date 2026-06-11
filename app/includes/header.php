@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'auth.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'csrf.php';
 
 $pageTitle = $pageTitle ?? app_name();
 $flashMessages = get_flash_messages();
@@ -23,7 +24,10 @@ $flashMessages = get_flash_messages();
             <a href="<?= h(url('gallery.php')) ?>">Галерея</a>
             <?php if (is_admin_logged_in()): ?>
                 <a href="<?= h(url('admin/index.php')) ?>">Адмінпанель</a>
-                <a href="<?= h(url('admin/logout.php')) ?>">Вийти</a>
+                <form class="logout-form" method="post" action="<?= h(url('admin/logout.php')) ?>">
+                    <?= csrf_field() ?>
+                    <button class="nav-button" type="submit">Вийти</button>
+                </form>
             <?php else: ?>
                 <a href="<?= h(url('admin/login.php')) ?>">Вхід</a>
             <?php endif; ?>

@@ -57,7 +57,7 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
     </header>
 
     <figure class="large-photo">
-        <img src="<?= h(uploads_url('originals', $photo['filename'])) ?>" alt="<?= h($photo['title']) ?>">
+        <img src="<?= h(photo_display_url($photo)) ?>" alt="<?= h($photo['title']) ?>">
     </figure>
 
     <nav class="photo-nav" aria-label="Навігація між фотографіями">

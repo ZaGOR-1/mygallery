@@ -78,14 +78,31 @@ img {
 }
 
 .main-nav a,
+.nav-button,
 .section-heading a {
     border-bottom: 1px solid transparent;
 }
 
 .main-nav a:hover,
+.nav-button:hover,
 .section-heading a:hover {
     color: var(--text);
     border-color: var(--accent);
+}
+
+.logout-form {
+    margin: 0;
+}
+
+.nav-button {
+    padding: 0;
+    border-left: 0;
+    border-right: 0;
+    border-top: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
 }
 
 .site-main {

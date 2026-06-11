@@ -1,9 +1,10 @@
 config/database.php
 public/uploads/originals/*
+public/uploads/large/*
 public/uploads/thumbnails/*
 !public/uploads/originals/.gitkeep
+!public/uploads/large/.gitkeep
 !public/uploads/thumbnails/.gitkeep
 *.log
 .DS_Store
 Thumbs.db
-BUGS.md

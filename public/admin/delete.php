@@ -38,15 +38,20 @@ if (!$photo) {
     redirect('admin/index.php');
 }
 
+$fileErrors = delete_photo_files($photo);
+
+if (!empty($fileErrors)) {
+    set_flash('error', implode(' ', $fileErrors));
+    redirect('admin/index.php');
+}
+
 try {
     $stmt = db()->prepare('DELETE FROM photos WHERE id = :id');
     $stmt->execute(['id' => $id]);
 } catch (Throwable) {
-    set_flash('error', 'Не вдалося видалити запис із бази даних.');
+    set_flash('error', 'Файли видалено, але запис із бази даних видалити не вдалося.');
     redirect('admin/index.php');
 }
-
-delete_photo_files($photo);
 
 set_flash('success', 'Фотографію видалено.');
 redirect('admin/index.php');

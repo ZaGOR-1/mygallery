@@ -17,6 +17,21 @@ function ask(string $label): string
     return trim($value === false ? '' : $value);
 }
 
+function ask_secret(string $label): string
+{
+    if (DIRECTORY_SEPARATOR === '\\') {
+        return ask($label);
+    }
+
+    echo $label;
+    system('stty -echo');
+    $value = fgets(STDIN);
+    system('stty echo');
+    echo PHP_EOL;
+
+    return trim($value === false ? '' : $value);
+}
+
 try {
     $adminExists = (int) db()->query('SELECT COUNT(*) FROM admins')->fetchColumn() > 0;
 } catch (Throwable) {
@@ -30,7 +45,7 @@ if ($adminExists) {
 }
 
 $username = $argv[1] ?? ask('Логін адміністратора: ');
-$password = $argv[2] ?? ask('Пароль адміністратора: ');
+$password = ask_secret('Пароль адміністратора: ');
 
 if ($username === '') {
     fwrite(STDERR, "Вкажіть логін адміністратора.\n");

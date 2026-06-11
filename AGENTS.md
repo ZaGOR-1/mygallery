@@ -164,6 +164,7 @@ Apache VirtualHost має вказувати `DocumentRoot` на папку `pub
 * Не використовуй оригінальне ім’я як ім’я файла на сервері.
 * Оригінальне ім’я можна зберігати лише в базі.
 * Оригінали зберігай у `public/uploads/originals`.
+* Оптимізовані веб-версії зберігай у `public/uploads/large`.
 * Прев’ю зберігай у `public/uploads/thumbnails`.
 * Максимальна ширина прев’ю — 600 пікселів.
 * Зберігай пропорції зображення.
@@ -302,6 +303,7 @@ MyPhotoGallery/
 │   │       └── main.js
 │   ├── uploads/
 │   │   ├── originals/
+│   │   ├── large/
 │   │   ├── thumbnails/
 │   │   └── .htaccess
 │   ├── index.php

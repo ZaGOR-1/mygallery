@@ -34,7 +34,7 @@ function db_config(): array
     $path = project_root_path('config' . DIRECTORY_SEPARATOR . 'database.php');
 
     if (!file_exists($path)) {
-        $path = project_root_path('config' . DIRECTORY_SEPARATOR . 'database.example.php');
+        throw new RuntimeException('Файл config/database.php не знайдено. Скопіюйте config/database.example.php і впишіть налаштування бази даних.');
     }
 
     return require $path;
@@ -140,6 +140,7 @@ function ensure_upload_folders(): array
     $errors = [];
     $folders = [
         uploads_path('originals'),
+        uploads_path('large'),
         uploads_path('thumbnails'),
     ];
 
@@ -214,6 +215,34 @@ function upload_server_limit(): int
     $limits = array_filter($limits, static fn (int $limit): bool => $limit > 0);
 
     return empty($limits) ? 0 : min($limits);
+}
+
+function validate_image_limits(array $imageInfo): array
+{
+    $config = app_config();
+    $width = (int) ($imageInfo[0] ?? 0);
+    $height = (int) ($imageInfo[1] ?? 0);
+    $maxWidth = (int) $config['MAX_IMAGE_WIDTH'];
+    $maxHeight = (int) $config['MAX_IMAGE_HEIGHT'];
+    $maxPixels = (int) $config['MAX_IMAGE_PIXELS'];
+
+    if ($width < 1 || $height < 1) {
+        return ['Не вдалося визначити розміри JPEG-файла.'];
+    }
+
+    $errors = [];
+    $pixels = $width * $height;
+
+    if ($width > $maxWidth || $height > $maxHeight || $pixels > $maxPixels) {
+        $errors[] = sprintf(
+            'Зображення завелике за розмірами. Максимум: %dx%d або %s МП.',
+            $maxWidth,
+            $maxHeight,
+            rtrim(rtrim(number_format($maxPixels / 1000000, 1, '.', ''), '0'), '.')
+        );
+    }
+
+    return $errors;
 }
 
 function random_photo_name(): string
@@ -360,13 +389,35 @@ function apply_orientation(GdImage $image, mixed $orientation): GdImage
 {
     $orientation = (int) $orientation;
 
+    if ($orientation === 2) {
+        imageflip($image, IMG_FLIP_HORIZONTAL);
+        return $image;
+    }
+
     if ($orientation === 3) {
         $rotated = imagerotate($image, 180, 0);
         return $rotated ?: $image;
     }
 
+    if ($orientation === 4) {
+        imageflip($image, IMG_FLIP_VERTICAL);
+        return $image;
+    }
+
+    if ($orientation === 5) {
+        imageflip($image, IMG_FLIP_VERTICAL);
+        $rotated = imagerotate($image, 90, 0);
+        return $rotated ?: $image;
+    }
+
     if ($orientation === 6) {
         $rotated = imagerotate($image, -90, 0);
+        return $rotated ?: $image;
+    }
+
+    if ($orientation === 7) {
+        imageflip($image, IMG_FLIP_HORIZONTAL);
+        $rotated = imagerotate($image, 90, 0);
         return $rotated ?: $image;
     }
 
@@ -408,41 +459,73 @@ function save_corrected_original(string $source, string $destination, mixed $ori
     return [$width, $height];
 }
 
-function create_thumbnail(string $source, string $destination, int $maxWidth = 600): void
+function create_resized_jpeg(string $source, string $destination, int $maxWidth, int $quality): void
 {
     $image = create_image_from_jpeg($source);
 
     if (!$image instanceof GdImage) {
-        throw new RuntimeException('Не вдалося створити прев’ю.');
+        throw new RuntimeException('Не вдалося створити зменшену копію.');
     }
 
     $width = imagesx($image);
     $height = imagesy($image);
+
+    if ($width < 1 || $height < 1) {
+        imagedestroy($image);
+        throw new RuntimeException('Некоректні розміри JPEG-зображення.');
+    }
+
     $newWidth = min($maxWidth, $width);
     $newHeight = (int) round($height * ($newWidth / $width));
 
-    $thumb = imagecreatetruecolor($newWidth, $newHeight);
-    imagecopyresampled($thumb, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-    if (!imagejpeg($thumb, $destination, 85)) {
-        imagedestroy($thumb);
+    $resized = imagecreatetruecolor($newWidth, $newHeight);
+    imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+    if (!imagejpeg($resized, $destination, $quality)) {
+        imagedestroy($resized);
         imagedestroy($image);
-        throw new RuntimeException('Не вдалося зберегти прев’ю.');
+        throw new RuntimeException('Не вдалося зберегти зменшену копію.');
     }
 
-    imagedestroy($thumb);
+    imagedestroy($resized);
     imagedestroy($image);
 }
 
-function delete_photo_files(array $photo): void
+function create_thumbnail(string $source, string $destination, int $maxWidth = 600): void
+{
+    create_resized_jpeg($source, $destination, $maxWidth, 85);
+}
+
+function create_large_image(string $source, string $destination): void
+{
+    create_resized_jpeg($source, $destination, (int) app_config()['LARGE_MAX_WIDTH'], 86);
+}
+
+function photo_display_url(array $photo): string
+{
+    $filename = (string) $photo['filename'];
+
+    if (is_file(uploads_path('large', $filename))) {
+        return uploads_url('large', $filename);
+    }
+
+    return uploads_url('originals', $filename);
+}
+
+function delete_photo_files(array $photo): array
 {
     $files = [
         uploads_path('originals', (string) $photo['filename']),
+        uploads_path('large', (string) $photo['filename']),
         uploads_path('thumbnails', (string) $photo['thumbnail_filename']),
     ];
 
+    $errors = [];
+
     foreach ($files as $file) {
-        if (is_file($file)) {
-            unlink($file);
+        if (is_file($file) && !@unlink($file)) {
+            $errors[] = 'Не вдалося видалити файл ' . basename($file) . '.';
         }
     }
+
+    return $errors;
 }
