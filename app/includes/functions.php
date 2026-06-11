@@ -1,0 +1,448 @@
+<?php
+
+declare(strict_types=1);
+
+function project_root_path(string $path = ''): string
+{
+    $root = dirname(__DIR__, 2);
+    $path = trim($path, DIRECTORY_SEPARATOR);
+
+    return $path === '' ? $root : $root . DIRECTORY_SEPARATOR . $path;
+}
+
+function public_path(string $path = ''): string
+{
+    $public = project_root_path('public');
+    $path = trim($path, DIRECTORY_SEPARATOR);
+
+    return $path === '' ? $public : $public . DIRECTORY_SEPARATOR . $path;
+}
+
+function app_config(): array
+{
+    static $config = null;
+
+    if ($config === null) {
+        $config = require project_root_path('config' . DIRECTORY_SEPARATOR . 'config.php');
+    }
+
+    return $config;
+}
+
+function db_config(): array
+{
+    $path = project_root_path('config' . DIRECTORY_SEPARATOR . 'database.php');
+
+    if (!file_exists($path)) {
+        $path = project_root_path('config' . DIRECTORY_SEPARATOR . 'database.example.php');
+    }
+
+    return require $path;
+}
+
+function db(): PDO
+{
+    static $pdo = null;
+
+    if ($pdo === null) {
+        $config = db_config();
+        $dsn = sprintf(
+            'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
+            $config['DB_HOST'],
+            (int) $config['DB_PORT'],
+            $config['DB_NAME']
+        );
+
+        $pdo = new PDO($dsn, $config['DB_USER'], $config['DB_PASSWORD'], [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
+    }
+
+    return $pdo;
+}
+
+function app_name(): string
+{
+    return (string) app_config()['APP_NAME'];
+}
+
+function url(string $path = ''): string
+{
+    $basePath = (string) (parse_url((string) app_config()['APP_URL'], PHP_URL_PATH) ?: '');
+    $basePath = '/' . trim($basePath, '/');
+    $basePath = $basePath === '/' ? '' : $basePath;
+    $path = ltrim($path, '/');
+
+    return $path === '' ? $basePath . '/' : $basePath . '/' . $path;
+}
+
+function local_url(string $path = ''): string
+{
+    return url($path);
+}
+
+function h(?string $value): string
+{
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+function redirect(string $path): never
+{
+    header('Location: ' . url($path));
+    exit;
+}
+
+function start_session(): void
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+}
+
+function set_flash(string $type, string $message): void
+{
+    start_session();
+    $_SESSION['flash'][] = ['type' => $type, 'message' => $message];
+}
+
+function get_flash_messages(): array
+{
+    start_session();
+    $messages = $_SESSION['flash'] ?? [];
+    unset($_SESSION['flash']);
+
+    return $messages;
+}
+
+function get_int(string $key): ?int
+{
+    $value = filter_input(INPUT_GET, $key, FILTER_VALIDATE_INT);
+
+    return $value === false ? null : $value;
+}
+
+function uploads_path(string $folder, string $filename = ''): string
+{
+    $path = public_path('uploads' . DIRECTORY_SEPARATOR . $folder);
+
+    return $filename === '' ? $path : $path . DIRECTORY_SEPARATOR . $filename;
+}
+
+function uploads_url(string $folder, string $filename): string
+{
+    return url('uploads/' . $folder . '/' . rawurlencode($filename));
+}
+
+function ensure_upload_folders(): array
+{
+    $errors = [];
+    $folders = [
+        uploads_path('originals'),
+        uploads_path('thumbnails'),
+    ];
+
+    foreach ($folders as $folder) {
+        if (!is_dir($folder) && !mkdir($folder, 0755, true)) {
+            $errors[] = 'Не вдалося створити папку для завантажень.';
+            continue;
+        }
+
+        if (!is_writable($folder)) {
+            $errors[] = 'Папка для завантажень недоступна для запису.';
+        }
+    }
+
+    return $errors;
+}
+
+function safe_original_name(string $name): string
+{
+    $name = basename($name);
+
+    return text_limit($name, 255);
+}
+
+function text_limit(string $text, int $length): string
+{
+    if (function_exists('mb_substr')) {
+        return mb_substr($text, 0, $length);
+    }
+
+    return substr($text, 0, $length);
+}
+
+function size_to_bytes(string $value): int
+{
+    $value = trim($value);
+
+    if ($value === '') {
+        return 0;
+    }
+
+    $unit = strtolower($value[strlen($value) - 1]);
+    $number = (float) $value;
+
+    if ($unit === 'g') {
+        $number *= 1024 * 1024 * 1024;
+    } elseif ($unit === 'm') {
+        $number *= 1024 * 1024;
+    } elseif ($unit === 'k') {
+        $number *= 1024;
+    }
+
+    return (int) round($number);
+}
+
+function bytes_for_display(int $bytes): string
+{
+    if ($bytes >= 1024 * 1024) {
+        return rtrim(rtrim(number_format($bytes / 1024 / 1024, 1, '.', ''), '0'), '.') . ' МБ';
+    }
+
+    return rtrim(rtrim(number_format($bytes / 1024, 1, '.', ''), '0'), '.') . ' КБ';
+}
+
+function upload_server_limit(): int
+{
+    $limits = [
+        size_to_bytes((string) ini_get('upload_max_filesize')),
+        size_to_bytes((string) ini_get('post_max_size')),
+    ];
+
+    $limits = array_filter($limits, static fn (int $limit): bool => $limit > 0);
+
+    return empty($limits) ? 0 : min($limits);
+}
+
+function random_photo_name(): string
+{
+    return bin2hex(random_bytes(16)) . '.jpg';
+}
+
+function exif_fraction_to_float(mixed $value): ?float
+{
+    if ($value === null || $value === '') {
+        return null;
+    }
+
+    if (is_int($value) || is_float($value)) {
+        return (float) $value;
+    }
+
+    $value = trim((string) $value);
+
+    if (str_contains($value, '/')) {
+        [$top, $bottom] = array_pad(explode('/', $value, 2), 2, '0');
+        $top = (float) $top;
+        $bottom = (float) $bottom;
+
+        return $bottom == 0.0 ? null : $top / $bottom;
+    }
+
+    return is_numeric($value) ? (float) $value : null;
+}
+
+function exif_display_value(mixed $value): string
+{
+    if ($value === null || $value === '') {
+        return 'Немає даних';
+    }
+
+    if (is_array($value)) {
+        return 'Немає даних';
+    }
+
+    return (string) $value;
+}
+
+function format_aperture(mixed $value): string
+{
+    $number = exif_fraction_to_float($value);
+
+    return $number === null ? 'Немає даних' : 'f/' . rtrim(rtrim(number_format($number, 1, '.', ''), '0'), '.');
+}
+
+function format_focal_length(mixed $value): string
+{
+    $number = exif_fraction_to_float($value);
+
+    return $number === null ? 'Немає даних' : rtrim(rtrim(number_format($number, 1, '.', ''), '0'), '.') . ' мм';
+}
+
+function format_exposure_time(mixed $value): string
+{
+    if ($value === null || $value === '') {
+        return 'Немає даних';
+    }
+
+    return (string) $value . ' с';
+}
+
+function parse_exif_date(mixed $value): ?string
+{
+    if (!is_string($value) || trim($value) === '') {
+        return null;
+    }
+
+    $date = DateTime::createFromFormat('Y:m:d H:i:s', $value);
+
+    return $date instanceof DateTime ? $date->format('Y-m-d H:i:s') : null;
+}
+
+function read_photo_exif(string $path): array
+{
+    $exif = [];
+
+    if (function_exists('exif_read_data')) {
+        $data = @exif_read_data($path, null, true);
+        $exif = is_array($data) ? $data : [];
+    }
+
+    $ifd0 = $exif['IFD0'] ?? [];
+    $exifSection = $exif['EXIF'] ?? [];
+    $computed = $exif['COMPUTED'] ?? [];
+
+    $width = $computed['Width'] ?? null;
+    $height = $computed['Height'] ?? null;
+    $orientation = $ifd0['Orientation'] ?? null;
+
+    return [
+        'raw' => $exif,
+        'camera_make' => is_string($ifd0['Make'] ?? null) ? trim($ifd0['Make']) : null,
+        'camera_model' => is_string($ifd0['Model'] ?? null) ? trim($ifd0['Model']) : null,
+        'lens_model' => is_string($exifSection['LensModel'] ?? $exifSection['UndefinedTag:0xA434'] ?? null)
+            ? trim($exifSection['LensModel'] ?? $exifSection['UndefinedTag:0xA434'])
+            : null,
+        'taken_at' => parse_exif_date($exifSection['DateTimeOriginal'] ?? $ifd0['DateTime'] ?? null),
+        'iso' => $exifSection['ISOSpeedRatings'] ?? null,
+        'aperture' => $exifSection['FNumber'] ?? null,
+        'exposure_time' => $exifSection['ExposureTime'] ?? null,
+        'focal_length' => $exifSection['FocalLength'] ?? null,
+        'exposure_mode' => $exifSection['ExposureMode'] ?? null,
+        'flash' => $exifSection['Flash'] ?? null,
+        'orientation' => $orientation,
+        'width' => is_numeric($width) ? (int) $width : null,
+        'height' => is_numeric($height) ? (int) $height : null,
+    ];
+}
+
+function normalized_exif_for_display(?string $json, array $photo = []): array
+{
+    $raw = $json ? json_decode($json, true) : [];
+    $ifd0 = is_array($raw['IFD0'] ?? null) ? $raw['IFD0'] : [];
+    $exif = is_array($raw['EXIF'] ?? null) ? $raw['EXIF'] : [];
+
+    return [
+        'Виробник камери' => exif_display_value($photo['camera_make'] ?? $ifd0['Make'] ?? null),
+        'Модель камери' => exif_display_value($photo['camera_model'] ?? $ifd0['Model'] ?? null),
+        'Об’єктив' => exif_display_value($photo['lens_model'] ?? $exif['LensModel'] ?? $exif['UndefinedTag:0xA434'] ?? null),
+        'Дата і час зйомки' => exif_display_value($photo['taken_at'] ?? null),
+        'ISO' => exif_display_value($exif['ISOSpeedRatings'] ?? null),
+        'Діафрагма' => format_aperture($exif['FNumber'] ?? null),
+        'Витримка' => format_exposure_time($exif['ExposureTime'] ?? null),
+        'Фокусна відстань' => format_focal_length($exif['FocalLength'] ?? null),
+        'Режим експозиції' => exif_display_value($exif['ExposureMode'] ?? null),
+        'Спалах' => exif_display_value($exif['Flash'] ?? null),
+        'Орієнтація' => exif_display_value($ifd0['Orientation'] ?? null),
+        'Ширина' => isset($photo['width']) ? (string) $photo['width'] . ' px' : 'Немає даних',
+        'Висота' => isset($photo['height']) ? (string) $photo['height'] . ' px' : 'Немає даних',
+    ];
+}
+
+function create_image_from_jpeg(string $path): GdImage|false
+{
+    return @imagecreatefromjpeg($path);
+}
+
+function apply_orientation(GdImage $image, mixed $orientation): GdImage
+{
+    $orientation = (int) $orientation;
+
+    if ($orientation === 3) {
+        $rotated = imagerotate($image, 180, 0);
+        return $rotated ?: $image;
+    }
+
+    if ($orientation === 6) {
+        $rotated = imagerotate($image, -90, 0);
+        return $rotated ?: $image;
+    }
+
+    if ($orientation === 8) {
+        $rotated = imagerotate($image, 90, 0);
+        return $rotated ?: $image;
+    }
+
+    return $image;
+}
+
+function save_corrected_original(string $source, string $destination, mixed $orientation): array
+{
+    $image = create_image_from_jpeg($source);
+
+    if (!$image instanceof GdImage) {
+        throw new RuntimeException('Не вдалося прочитати JPEG-зображення.');
+    }
+
+    $corrected = apply_orientation($image, $orientation);
+    if (!imagejpeg($corrected, $destination, 90)) {
+        if ($corrected !== $image) {
+            imagedestroy($corrected);
+        }
+
+        imagedestroy($image);
+        throw new RuntimeException('Не вдалося зберегти JPEG-зображення.');
+    }
+
+    $width = imagesx($corrected);
+    $height = imagesy($corrected);
+
+    if ($corrected !== $image) {
+        imagedestroy($corrected);
+    }
+
+    imagedestroy($image);
+
+    return [$width, $height];
+}
+
+function create_thumbnail(string $source, string $destination, int $maxWidth = 600): void
+{
+    $image = create_image_from_jpeg($source);
+
+    if (!$image instanceof GdImage) {
+        throw new RuntimeException('Не вдалося створити прев’ю.');
+    }
+
+    $width = imagesx($image);
+    $height = imagesy($image);
+    $newWidth = min($maxWidth, $width);
+    $newHeight = (int) round($height * ($newWidth / $width));
+
+    $thumb = imagecreatetruecolor($newWidth, $newHeight);
+    imagecopyresampled($thumb, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+    if (!imagejpeg($thumb, $destination, 85)) {
+        imagedestroy($thumb);
+        imagedestroy($image);
+        throw new RuntimeException('Не вдалося зберегти прев’ю.');
+    }
+
+    imagedestroy($thumb);
+    imagedestroy($image);
+}
+
+function delete_photo_files(array $photo): void
+{
+    $files = [
+        uploads_path('originals', (string) $photo['filename']),
+        uploads_path('thumbnails', (string) $photo['thumbnail_filename']),
+    ];
+
+    foreach ($files as $file) {
+        if (is_file($file)) {
+            unlink($file);
+        }
+    }
+}
