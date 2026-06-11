@@ -5,6 +5,8 @@ declare(strict_types=1);
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'auth.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'csrf.php';
 
+send_security_headers();
+
 $pageTitle = $pageTitle ?? app_name();
 $flashMessages = get_flash_messages();
 ?>

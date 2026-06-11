@@ -37,3 +37,16 @@ CREATE TABLE IF NOT EXISTS `photos` (
   KEY `idx_photos_camera_model` (`camera_model`),
   KEY `idx_photos_title` (`title`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `login_attempts` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `username` VARCHAR(100) NOT NULL,
+  `ip_address` VARCHAR(45) NOT NULL,
+  `attempts` INT UNSIGNED NOT NULL DEFAULT 0,
+  `locked_until` DATETIME NULL,
+  `last_attempt_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_login_attempts_username_ip` (`username`, `ip_address`),
+  KEY `idx_login_attempts_locked_until` (`locked_until`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -48,7 +48,7 @@ Apache має дивитися саме в `public/`. Папки `app/`, `config
 DocumentRoot "c:/wamp64/domains/mygallery/public"
 
 <Directory "c:/wamp64/domains/mygallery/public/">
-    Options +Indexes +Includes +FollowSymLinks +MultiViews
+    Options -Indexes +FollowSymLinks
     AllowOverride All
     Require local
 </Directory>
@@ -107,6 +107,8 @@ C:\wamp64\bin\php\php8.3.14\php.exe tools\setup.php
 ```
 
 12. Відкрийте `http://mygallery/admin/login.php` і увійдіть.
+
+Схема створює таблиці `admins`, `photos` і `login_attempts`. Остання потрібна для серверного обмеження невдалих спроб входу.
 
 ## Встановлення на LAMP у VM Proxmox
 
@@ -170,6 +172,7 @@ sudo chmod 750 /var/www/mygallery/public/uploads/originals /var/www/mygallery/pu
     DocumentRoot /var/www/mygallery/public
 
     <Directory /var/www/mygallery/public>
+        Options -Indexes +FollowSymLinks
         AllowOverride All
         Require all granted
     </Directory>
@@ -220,6 +223,18 @@ mysqldump -u gallery_user -p my_photo_gallery > backup.sql
 - налаштуйте HTTPS через Let’s Encrypt або інший сертифікат;
 - переконайтеся, що Apache відкриває тільки `public/`;
 - переконайтеся, що PHP-файли в `public/uploads` не виконуються.
+- вимкніть зайві version headers:
+
+```ini
+expose_php = Off
+```
+
+```apache
+ServerTokens Prod
+ServerSignature Off
+```
+
+Застосунок також віддає базові security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` і `Content-Security-Policy`.
 
 ## Після встановлення
 

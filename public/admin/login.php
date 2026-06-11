@@ -13,34 +13,94 @@ if (is_admin_logged_in()) {
 $pageTitle = 'Вхід - ' . app_name();
 $errors = [];
 
-function login_lock_seconds_left(): int
+function login_client_ip(): string
 {
-    start_session();
-    $lockUntil = (int) ($_SESSION['login_lock_until'] ?? 0);
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+
+    return is_string($ip) && $ip !== '' ? $ip : 'unknown';
+}
+
+function normalize_login_username(string $username): string
+{
+    $username = trim($username);
+
+    return function_exists('mb_strtolower') ? mb_strtolower($username) : strtolower($username);
+}
+
+function login_lock_seconds_for(string $username, string $ip): int
+{
+    $stmt = db()->prepare('SELECT locked_until FROM login_attempts WHERE username = :username AND ip_address = :ip_address LIMIT 1');
+    $stmt->execute([
+        'username' => normalize_login_username($username),
+        'ip_address' => $ip,
+    ]);
+
+    $attempt = $stmt->fetch();
+
+    if (!$attempt || empty($attempt['locked_until'])) {
+        return 0;
+    }
+
+    $lockUntil = strtotime((string) $attempt['locked_until']);
+
+    if ($lockUntil === false || $lockUntil <= time()) {
+        clear_failed_logins($username, $ip);
+        return 0;
+    }
 
     return max(0, $lockUntil - time());
 }
 
-function register_failed_login(): void
+function register_failed_login(string $username, string $ip): void
 {
-    start_session();
     $config = app_config();
     $maxAttempts = (int) $config['LOGIN_MAX_ATTEMPTS'];
     $lockSeconds = (int) $config['LOGIN_LOCK_SECONDS'];
-    $attempts = (int) ($_SESSION['login_failed_attempts'] ?? 0) + 1;
+    $username = normalize_login_username($username);
 
-    $_SESSION['login_failed_attempts'] = $attempts;
+    $stmt = db()->prepare('SELECT attempts FROM login_attempts WHERE username = :username AND ip_address = :ip_address LIMIT 1');
+    $stmt->execute([
+        'username' => $username,
+        'ip_address' => $ip,
+    ]);
+
+    $attempt = $stmt->fetch();
+    $attempts = (int) ($attempt['attempts'] ?? 0) + 1;
+    $lockedUntil = null;
 
     if ($attempts >= $maxAttempts) {
-        $_SESSION['login_lock_until'] = time() + $lockSeconds;
-        $_SESSION['login_failed_attempts'] = 0;
+        $lockedUntil = date('Y-m-d H:i:s', time() + $lockSeconds);
+        $attempts = 0;
     }
+
+    if ($attempt) {
+        $stmt = db()->prepare(
+            'UPDATE login_attempts
+            SET attempts = :attempts, locked_until = :locked_until
+            WHERE username = :username AND ip_address = :ip_address'
+        );
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO login_attempts (username, ip_address, attempts, locked_until)
+            VALUES (:username, :ip_address, :attempts, :locked_until)'
+        );
+    }
+
+    $stmt->execute([
+        'username' => $username,
+        'ip_address' => $ip,
+        'attempts' => $attempts,
+        'locked_until' => $lockedUntil,
+    ]);
 }
 
-function clear_failed_logins(): void
+function clear_failed_logins(string $username, string $ip): void
 {
-    start_session();
-    unset($_SESSION['login_failed_attempts'], $_SESSION['login_lock_until']);
+    $stmt = db()->prepare('DELETE FROM login_attempts WHERE username = :username AND ip_address = :ip_address');
+    $stmt->execute([
+        'username' => normalize_login_username($username),
+        'ip_address' => $ip,
+    ]);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -48,16 +108,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Помилка CSRF-захисту. Оновіть сторінку і спробуйте ще раз.';
     }
 
-    $lockSecondsLeft = login_lock_seconds_left();
-    if ($lockSecondsLeft > 0) {
-        $errors[] = 'Забагато невдалих спроб. Спробуйте ще раз через ' . $lockSecondsLeft . ' с.';
-    }
-
     $username = trim((string) ($_POST['username'] ?? ''));
     $password = (string) ($_POST['password'] ?? '');
+    $ip = login_client_ip();
 
     if ($username === '' || $password === '') {
         $errors[] = 'Вкажіть логін і пароль.';
+    }
+
+    if (empty($errors)) {
+        try {
+            $lockSecondsLeft = login_lock_seconds_for($username, $ip);
+            if ($lockSecondsLeft > 0) {
+                $errors[] = 'Забагато невдалих спроб. Спробуйте ще раз через ' . $lockSecondsLeft . ' с.';
+            }
+        } catch (Throwable) {
+            $errors[] = 'Не вдалося перевірити ліміт спроб входу. Перевірте структуру бази даних.';
+        }
     }
 
     if (empty($errors)) {
@@ -67,12 +134,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $admin = $stmt->fetch();
 
             if ($admin && password_verify($password, (string) $admin['password_hash'])) {
-                clear_failed_logins();
+                clear_failed_logins($username, $ip);
                 login_admin($admin);
                 redirect('admin/index.php');
             }
 
-            register_failed_login();
+            register_failed_login($username, $ip);
             $errors[] = 'Неправильний логін або пароль.';
         } catch (Throwable) {
             $errors[] = 'Не вдалося виконати вхід. Перевірте налаштування бази даних.';

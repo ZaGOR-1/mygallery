@@ -94,11 +94,46 @@ function redirect(string $path): never
     exit;
 }
 
+function is_https_request(): bool
+{
+    return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['SERVER_PORT'] ?? '') === '443');
+}
+
+function session_cookie_options(): array
+{
+    $config = app_config();
+
+    return [
+        'lifetime' => 0,
+        'path' => '/',
+        'domain' => '',
+        'secure' => is_https_request() || (($config['APP_ENV'] ?? '') === 'production' && str_starts_with((string) $config['APP_URL'], 'https://')),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ];
+}
+
 function start_session(): void
 {
     if (session_status() !== PHP_SESSION_ACTIVE) {
+        ini_set('session.use_strict_mode', '1');
+        session_set_cookie_params(session_cookie_options());
         session_start();
     }
+}
+
+function send_security_headers(): void
+{
+    if (headers_sent()) {
+        return;
+    }
+
+    header_remove('X-Powered-By');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: same-origin');
+    header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
 }
 
 function set_flash(string $type, string $message): void
@@ -511,17 +546,33 @@ function photo_display_url(array $photo): string
     return uploads_url('originals', $filename);
 }
 
-function delete_photo_files(array $photo): array
+function photo_file_paths(array $photo): array
 {
-    $files = [
+    return [
         uploads_path('originals', (string) $photo['filename']),
         uploads_path('large', (string) $photo['filename']),
         uploads_path('thumbnails', (string) $photo['thumbnail_filename']),
     ];
+}
 
+function validate_photo_files_deletable(array $photo): array
+{
     $errors = [];
 
-    foreach ($files as $file) {
+    foreach (photo_file_paths($photo) as $file) {
+        if (is_file($file) && !is_writable($file)) {
+            $errors[] = 'Немає права видалити файл ' . basename($file) . '.';
+        }
+    }
+
+    return $errors;
+}
+
+function delete_photo_files(array $photo): array
+{
+    $errors = [];
+
+    foreach (photo_file_paths($photo) as $file) {
         if (is_file($file) && !@unlink($file)) {
             $errors[] = 'Не вдалося видалити файл ' . basename($file) . '.';
         }

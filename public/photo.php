@@ -28,12 +28,30 @@ if (!$photo) {
 }
 
 try {
-    $prevStmt = db()->prepare('SELECT id, title FROM photos WHERE id < :id ORDER BY id DESC LIMIT 1');
-    $prevStmt->execute(['id' => $id]);
+    $prevStmt = db()->prepare(
+        'SELECT id, title
+        FROM photos
+        WHERE created_at > :created_at OR (created_at = :created_at AND id > :id)
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1'
+    );
+    $prevStmt->execute([
+        'created_at' => $photo['created_at'],
+        'id' => $id,
+    ]);
     $previousPhoto = $prevStmt->fetch();
 
-    $nextStmt = db()->prepare('SELECT id, title FROM photos WHERE id > :id ORDER BY id ASC LIMIT 1');
-    $nextStmt->execute(['id' => $id]);
+    $nextStmt = db()->prepare(
+        'SELECT id, title
+        FROM photos
+        WHERE created_at < :created_at OR (created_at = :created_at AND id < :id)
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1'
+    );
+    $nextStmt->execute([
+        'created_at' => $photo['created_at'],
+        'id' => $id,
+    ]);
     $nextPhoto = $nextStmt->fetch();
 } catch (Throwable) {
     $previousPhoto = false;

@@ -199,7 +199,8 @@ PDO::ATTR_EMULATE_PREPARES => false,
 Створи таблиці:
 
 * `admins`;
-* `photos`.
+* `photos`;
+* `login_attempts` для обмеження невдалих спроб входу.
 
 Повні EXIF-дані зберігай у полі `exif_json`.
 

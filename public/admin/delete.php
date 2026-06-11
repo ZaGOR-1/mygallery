@@ -38,7 +38,7 @@ if (!$photo) {
     redirect('admin/index.php');
 }
 
-$fileErrors = delete_photo_files($photo);
+$fileErrors = validate_photo_files_deletable($photo);
 
 if (!empty($fileErrors)) {
     set_flash('error', implode(' ', $fileErrors));
@@ -49,7 +49,14 @@ try {
     $stmt = db()->prepare('DELETE FROM photos WHERE id = :id');
     $stmt->execute(['id' => $id]);
 } catch (Throwable) {
-    set_flash('error', 'Файли видалено, але запис із бази даних видалити не вдалося.');
+    set_flash('error', 'Не вдалося видалити запис із бази даних. Файли залишено на місці.');
+    redirect('admin/index.php');
+}
+
+$fileErrors = delete_photo_files($photo);
+
+if (!empty($fileErrors)) {
+    set_flash('error', 'Запис із бази видалено, але частину файлів не вдалося прибрати: ' . implode(' ', $fileErrors));
     redirect('admin/index.php');
 }
 
