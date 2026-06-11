@@ -90,6 +90,7 @@ function h(?string $value): string
 
 function redirect(string $path): never
 {
+    send_security_headers();
     header('Location: ' . url($path));
     exit;
 }
@@ -123,6 +124,11 @@ function start_session(): void
     }
 }
 
+function has_session_cookie(): bool
+{
+    return isset($_COOKIE[session_name()]);
+}
+
 function send_security_headers(): void
 {
     if (headers_sent()) {
@@ -133,6 +139,7 @@ function send_security_headers(): void
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');
     header('Referrer-Policy: same-origin');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
     header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
 }
 
@@ -144,6 +151,10 @@ function set_flash(string $type, string $message): void
 
 function get_flash_messages(): array
 {
+    if (session_status() !== PHP_SESSION_ACTIVE && !has_session_cookie()) {
+        return [];
+    }
+
     start_session();
     $messages = $_SESSION['flash'] ?? [];
     unset($_SESSION['flash']);
@@ -168,6 +179,34 @@ function uploads_path(string $folder, string $filename = ''): string
 function uploads_url(string $folder, string $filename): string
 {
     return url('uploads/' . $folder . '/' . rawurlencode($filename));
+}
+
+function valid_photo_filename(string $filename): bool
+{
+    return preg_match('/\A[a-f0-9]{32}\.jpg\z/', $filename) === 1;
+}
+
+function safe_existing_upload_file_path(string $folder, string $filename): ?string
+{
+    if (!valid_photo_filename($filename)) {
+        return null;
+    }
+
+    $basePath = realpath(uploads_path($folder));
+
+    if ($basePath === false) {
+        return null;
+    }
+
+    $filePath = realpath($basePath . DIRECTORY_SEPARATOR . $filename);
+
+    if ($filePath === false) {
+        return null;
+    }
+
+    $basePath = rtrim($basePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+
+    return str_starts_with($filePath, $basePath) ? $filePath : null;
 }
 
 function ensure_upload_folders(): array
@@ -364,9 +403,9 @@ function read_photo_exif(string $path): array
         $exif = is_array($data) ? $data : [];
     }
 
-    $ifd0 = $exif['IFD0'] ?? [];
-    $exifSection = $exif['EXIF'] ?? [];
-    $computed = $exif['COMPUTED'] ?? [];
+    $ifd0 = is_array($exif['IFD0'] ?? null) ? $exif['IFD0'] : [];
+    $exifSection = is_array($exif['EXIF'] ?? null) ? $exif['EXIF'] : [];
+    $computed = is_array($exif['COMPUTED'] ?? null) ? $exif['COMPUTED'] : [];
 
     $width = $computed['Width'] ?? null;
     $height = $computed['Height'] ?? null;
@@ -539,7 +578,7 @@ function photo_display_url(array $photo): string
 {
     $filename = (string) $photo['filename'];
 
-    if (is_file(uploads_path('large', $filename))) {
+    if (safe_existing_upload_file_path('large', $filename) !== null) {
         return uploads_url('large', $filename);
     }
 
@@ -548,16 +587,44 @@ function photo_display_url(array $photo): string
 
 function photo_file_paths(array $photo): array
 {
-    return [
-        uploads_path('originals', (string) $photo['filename']),
-        uploads_path('large', (string) $photo['filename']),
-        uploads_path('thumbnails', (string) $photo['thumbnail_filename']),
+    $paths = [];
+    $files = [
+        ['originals', (string) ($photo['filename'] ?? '')],
+        ['large', (string) ($photo['filename'] ?? '')],
+        ['thumbnails', (string) ($photo['thumbnail_filename'] ?? '')],
     ];
+
+    foreach ($files as [$folder, $filename]) {
+        $path = safe_existing_upload_file_path($folder, $filename);
+
+        if ($path !== null) {
+            $paths[] = $path;
+        }
+    }
+
+    return $paths;
+}
+
+function photo_filename_errors(array $photo): array
+{
+    $errors = [];
+    $files = [
+        (string) ($photo['filename'] ?? ''),
+        (string) ($photo['thumbnail_filename'] ?? ''),
+    ];
+
+    foreach ($files as $filename) {
+        if (!valid_photo_filename($filename)) {
+            $errors[] = 'Некоректне ім’я файла фотографії.';
+        }
+    }
+
+    return array_values(array_unique($errors));
 }
 
 function validate_photo_files_deletable(array $photo): array
 {
-    $errors = [];
+    $errors = photo_filename_errors($photo);
 
     foreach (photo_file_paths($photo) as $file) {
         if (is_file($file) && !is_writable($file)) {

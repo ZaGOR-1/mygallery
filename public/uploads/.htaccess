@@ -5,3 +5,9 @@ RemoveType .php .php3 .php4 .php5 .php7 .php8 .phtml .phar
 <FilesMatch "\.(php|php3|php4|php5|php7|php8|phtml|phar)$">
     Require all denied
 </FilesMatch>
+
+<IfModule mod_headers.c>
+    <FilesMatch "\.(jpg|jpeg)$">
+        Header set Cache-Control "public, max-age=2592000"
+    </FilesMatch>
+</IfModule>

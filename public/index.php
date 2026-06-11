@@ -37,7 +37,7 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
         <?php foreach ($latestPhotos as $photo): ?>
             <article class="photo-card">
                 <a href="<?= h(url('photo.php?id=' . (int) $photo['id'])) ?>">
-                    <img src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>" alt="<?= h($photo['title']) ?>" loading="lazy">
+                    <img src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>" alt="<?= h($photo['title']) ?>" width="600" height="400" loading="lazy">
                     <span><?= h($photo['title']) ?></span>
                 </a>
                 <p><?= h($photo['camera_model'] ?: 'Немає даних') ?></p>

@@ -23,8 +23,19 @@ function login_client_ip(): string
 function normalize_login_username(string $username): string
 {
     $username = trim($username);
+    $username = text_limit($username, 100);
 
     return function_exists('mb_strtolower') ? mb_strtolower($username) : strtolower($username);
+}
+
+function cleanup_old_login_attempts(): void
+{
+    $stmt = db()->prepare(
+        'DELETE FROM login_attempts
+        WHERE last_attempt_at < DATE_SUB(NOW(), INTERVAL 30 DAY)
+        OR (locked_until IS NOT NULL AND locked_until < DATE_SUB(NOW(), INTERVAL 1 DAY))'
+    );
+    $stmt->execute();
 }
 
 function login_lock_seconds_for(string $username, string $ip): int
@@ -118,6 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($errors)) {
         try {
+            cleanup_old_login_attempts();
             $lockSecondsLeft = login_lock_seconds_for($username, $ip);
             if ($lockSecondsLeft > 0) {
                 $errors[] = 'Забагато невдалих спроб. Спробуйте ще раз через ' . $lockSecondsLeft . ' с.';
@@ -160,7 +172,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <?= csrf_field() ?>
         <label>
             Логін
-            <input type="text" name="username" required autocomplete="username">
+            <input type="text" name="username" required maxlength="100" autocomplete="username">
         </label>
         <label>
             Пароль

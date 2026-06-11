@@ -6,6 +6,10 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'functions.php';
 
 function is_admin_logged_in(): bool
 {
+    if (session_status() !== PHP_SESSION_ACTIVE && !has_session_cookie()) {
+        return false;
+    }
+
     start_session();
 
     return isset($_SESSION['admin_id']);

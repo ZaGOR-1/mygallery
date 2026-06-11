@@ -33,6 +33,7 @@ public/uploads/originals   оригінальні JPEG
 public/uploads/large       оптимізовані веб-версії
 public/uploads/thumbnails  прев’ю
 tools/setup.php            консольне створення першого адміністратора
+tools/cleanup_orphans.php  перевірка зайвих файлів у uploads
 ```
 
 Apache має дивитися саме в `public/`. Папки `app/`, `config/`, `database/`, `tools/` і `README.md` не повинні бути доступні напряму через браузер.
@@ -191,6 +192,8 @@ sudo systemctl reload apache2
 
 Для роботи `public/uploads/.htaccess` у Apache має бути дозволено `AllowOverride All`.
 
+`ServerTokens Prod` налаштовується в основній конфігурації Apache, а не в `.htaccess`. Локальний `.htaccess` прибирає `X-Powered-By`, але повністю приховати `Server` header можна тільки на рівні Apache config.
+
 ## Перенесення з Windows на Linux
 
 1. Експортуйте базу через phpMyAdmin або `mysqldump`.
@@ -215,6 +218,18 @@ sudo systemctl reload apache2
 mysqldump -u gallery_user -p my_photo_gallery > backup.sql
 ```
 
+Щоб знайти JPEG-файли в `public/uploads`, яких уже немає в базі:
+
+```bash
+php tools/cleanup_orphans.php
+```
+
+Щоб видалити знайдені orphan-файли:
+
+```bash
+php tools/cleanup_orphans.php --delete
+```
+
 ## Production-налаштування
 
 - встановіть `APP_DEBUG` у `false`;
@@ -235,6 +250,8 @@ ServerSignature Off
 ```
 
 Застосунок також віддає базові security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` і `Content-Security-Policy`.
+Додатково налаштовано `Permissions-Policy` і прості cache headers для `public/assets` та JPEG у `public/uploads`.
+Для cache headers Apache має мати увімкнені `mod_headers` і `mod_expires`, а для `.htaccess` має бути дозволено `AllowOverride FileInfo` або `AllowOverride All`.
 
 ## Після встановлення
 

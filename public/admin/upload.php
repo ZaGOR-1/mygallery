@@ -15,26 +15,29 @@ $maxUploadSize = $serverUploadLimit > 0 ? min($appUploadLimit, $serverUploadLimi
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+    $requestTooLarge = $serverUploadLimit > 0 && $contentLength > $serverUploadLimit;
 
-    if ($serverUploadLimit > 0 && $contentLength > $serverUploadLimit) {
+    if ($requestTooLarge) {
         $errors[] = 'Файл завеликий для поточних налаштувань PHP. Максимальний розмір зараз - ' . bytes_for_display($serverUploadLimit) . '.';
     } elseif (!verify_csrf()) {
         $errors[] = 'Помилка CSRF-захисту. Оновіть сторінку і спробуйте ще раз.';
     }
 
-    $errors = array_merge($errors, ensure_upload_folders());
-    $file = $_FILES['photo'] ?? null;
+    if (!$requestTooLarge) {
+        $errors = array_merge($errors, ensure_upload_folders());
+        $file = $_FILES['photo'] ?? null;
 
-    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
-        $errors[] = 'Оберіть JPEG-файл для завантаження.';
-    } elseif (($file['error'] ?? UPLOAD_ERR_OK) === UPLOAD_ERR_INI_SIZE || ($file['error'] ?? UPLOAD_ERR_OK) === UPLOAD_ERR_FORM_SIZE) {
-        $errors[] = 'Файл завеликий для поточних налаштувань PHP. Максимальний розмір зараз - ' . bytes_for_display($maxUploadSize) . '.';
-    } elseif (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
-        $errors[] = 'Не вдалося завантажити файл. Спробуйте ще раз.';
-    } elseif ((int) $file['size'] > $appUploadLimit) {
-        $errors[] = 'Файл завеликий. Максимальний розмір - ' . bytes_for_display($appUploadLimit) . '.';
-    } elseif (!is_uploaded_file((string) $file['tmp_name'])) {
-        $errors[] = 'Файл не пройшов перевірку завантаження.';
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            $errors[] = 'Оберіть JPEG-файл для завантаження.';
+        } elseif (($file['error'] ?? UPLOAD_ERR_OK) === UPLOAD_ERR_INI_SIZE || ($file['error'] ?? UPLOAD_ERR_OK) === UPLOAD_ERR_FORM_SIZE) {
+            $errors[] = 'Файл завеликий для поточних налаштувань PHP. Максимальний розмір зараз - ' . bytes_for_display($maxUploadSize) . '.';
+        } elseif (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+            $errors[] = 'Не вдалося завантажити файл. Спробуйте ще раз.';
+        } elseif ((int) $file['size'] > $appUploadLimit) {
+            $errors[] = 'Файл завеликий. Максимальний розмір - ' . bytes_for_display($appUploadLimit) . '.';
+        } elseif (!is_uploaded_file((string) $file['tmp_name'])) {
+            $errors[] = 'Файл не пройшов перевірку завантаження.';
+        }
     }
 
     if (empty($errors)) {
