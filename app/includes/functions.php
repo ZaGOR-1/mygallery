@@ -167,6 +167,16 @@ function session_cookie_options(): array
 function start_session(): void
 {
     if (session_status() !== PHP_SESSION_ACTIVE) {
+        $sessionPath = storage_path('sessions');
+
+        if (!is_dir($sessionPath)) {
+            @mkdir($sessionPath, 0755, true);
+        }
+
+        if (is_dir($sessionPath) && is_writable($sessionPath) && !str_contains((string) session_save_path(), 'test_sessions')) {
+            session_save_path($sessionPath);
+        }
+
         ini_set('session.use_strict_mode', '1');
         session_set_cookie_params(session_cookie_options());
         session_start();
@@ -259,6 +269,92 @@ function url_with_query(string $path, array $params = []): string
     }
 
     return url($path . '?' . http_build_query($cleanParams));
+}
+
+function clean_album_name(string $name): string
+{
+    $name = preg_replace('/[\x00-\x1F\x7F]/u', '', $name) ?? '';
+
+    return text_limit(trim($name), 100);
+}
+
+function get_album_id_from_request(string $key = 'album_id'): ?int
+{
+    $id = filter_input(INPUT_GET, $key, FILTER_VALIDATE_INT);
+
+    return $id === false || $id === null || $id < 1 ? null : $id;
+}
+
+function get_album_id_from_post(string $key = 'album_id'): ?int
+{
+    $id = filter_input(INPUT_POST, $key, FILTER_VALIDATE_INT);
+
+    return $id === false || $id === null || $id < 1 ? null : $id;
+}
+
+function get_album_options(bool $withCounts = false): array
+{
+    if ($withCounts) {
+        $stmt = db()->query(
+            'SELECT albums.id, albums.name, COUNT(photos.id) AS photo_count
+            FROM albums
+            LEFT JOIN photos ON photos.album_id = albums.id
+            GROUP BY albums.id, albums.name
+            ORDER BY albums.name ASC'
+        );
+
+        return $stmt->fetchAll();
+    }
+
+    $stmt = db()->query('SELECT id, name FROM albums ORDER BY name ASC');
+
+    return $stmt->fetchAll();
+}
+
+function album_exists(int $id): bool
+{
+    $stmt = db()->prepare('SELECT COUNT(*) FROM albums WHERE id = :id');
+    $stmt->execute(['id' => $id]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function find_or_create_album(string $name): int
+{
+    $name = clean_album_name($name);
+
+    if ($name === '') {
+        throw new InvalidArgumentException('Назва альбому не може бути порожньою.');
+    }
+
+    $stmt = db()->prepare('SELECT id FROM albums WHERE name = :name');
+    $stmt->execute(['name' => $name]);
+    $existingId = $stmt->fetchColumn();
+
+    if ($existingId !== false) {
+        return (int) $existingId;
+    }
+
+    $stmt = db()->prepare('INSERT INTO albums (name) VALUES (:name)');
+    $stmt->execute(['name' => $name]);
+
+    return (int) db()->lastInsertId();
+}
+
+function resolve_album_id_from_post(): ?int
+{
+    $albumId = get_album_id_from_post('album_id');
+    $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
+
+    if ($newAlbumName !== '') {
+        return find_or_create_album($newAlbumName);
+    }
+
+    if ($albumId !== null && !album_exists($albumId)) {
+        throw new InvalidArgumentException('Обраний альбом не знайдено.');
+    }
+
+    return $albumId;
 }
 
 function uploads_path(string $folder, string $filename = ''): string

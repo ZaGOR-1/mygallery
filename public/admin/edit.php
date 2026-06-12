@@ -29,8 +29,20 @@ if (!$photo) {
 
 $pageTitle = 'Редагування - ' . app_name();
 $errors = [];
+$albumOptions = [];
+$selectedAlbumId = isset($photo['album_id']) ? (int) $photo['album_id'] : null;
+$newAlbumName = '';
+
+try {
+    $albumOptions = get_album_options();
+} catch (Throwable) {
+    $errors[] = 'Не вдалося завантажити список альбомів. Перевірте схему бази даних.';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $selectedAlbumId = get_album_id_from_post('album_id');
+    $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
+
     if (!verify_csrf()) {
         $errors[] = 'Помилка CSRF-захисту. Оновіть сторінку і спробуйте ще раз.';
     }
@@ -42,10 +54,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Назва не може бути порожньою.';
     }
 
+    $albumId = null;
     if (empty($errors)) {
         try {
-            $stmt = db()->prepare('UPDATE photos SET title = :title, description = :description WHERE id = :id');
+            $albumId = resolve_album_id_from_post();
+        } catch (InvalidArgumentException $exception) {
+            $errors[] = $exception->getMessage();
+        }
+    }
+
+    if (empty($errors)) {
+        try {
+            $stmt = db()->prepare('UPDATE photos SET album_id = :album_id, title = :title, description = :description WHERE id = :id');
             $stmt->execute([
+                'album_id' => $albumId,
                 'title' => text_limit($title, 255),
                 'description' => $description === '' ? null : $description,
                 'id' => $id,
@@ -81,6 +103,19 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <label>
             Опис
             <textarea name="description" rows="6"><?= h((string) $photo['description']) ?></textarea>
+        </label>
+        <label>
+            Альбом
+            <select name="album_id">
+                <option value="">Без альбому</option>
+                <?php foreach ($albumOptions as $album): ?>
+                    <option value="<?= h((string) $album['id']) ?>" <?= (int) $album['id'] === $selectedAlbumId ? 'selected' : '' ?>><?= h($album['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>
+            Новий альбом
+            <input type="text" name="new_album_name" value="<?= h($newAlbumName) ?>" maxlength="100" placeholder="Заповніть, якщо треба створити новий">
         </label>
         <button class="button" type="submit">Зберегти</button>
     </form>

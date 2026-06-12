@@ -10,10 +10,12 @@ $page = max(1, get_int('page') ?? 1);
 $offset = ($page - 1) * $perPage;
 $photos = [];
 $cameraOptions = [];
+$albumOptions = [];
 $totalPhotos = 0;
 $totalPages = 1;
 $search = get_query_string('q', 120);
 $camera = get_query_string('camera', 150);
+$albumId = get_album_id_from_request('album_id');
 $dateFrom = get_query_string('date_from', 10);
 $dateTo = get_query_string('date_to', 10);
 $sort = get_query_string('sort', 30);
@@ -34,24 +36,26 @@ $sortOptions = [
     'title_za' => 'Назва: Я-А',
 ];
 $sortSql = [
-    'newest' => 'created_at DESC, id DESC',
-    'oldest' => 'created_at ASC, id ASC',
-    'taken_newest' => 'taken_at IS NULL ASC, taken_at DESC, created_at DESC, id DESC',
-    'taken_oldest' => 'taken_at IS NULL ASC, taken_at ASC, created_at ASC, id ASC',
-    'title_az' => 'title ASC, id ASC',
-    'title_za' => 'title DESC, id DESC',
+    'newest' => 'photos.created_at DESC, photos.id DESC',
+    'oldest' => 'photos.created_at ASC, photos.id ASC',
+    'taken_newest' => 'photos.taken_at IS NULL ASC, photos.taken_at DESC, photos.created_at DESC, photos.id DESC',
+    'taken_oldest' => 'photos.taken_at IS NULL ASC, photos.taken_at ASC, photos.created_at ASC, photos.id ASC',
+    'title_az' => 'photos.title ASC, photos.id ASC',
+    'title_za' => 'photos.title DESC, photos.id DESC',
 ];
 $sort = array_key_exists($sort, $sortOptions) ? $sort : 'newest';
 $filterParams = [
     'q' => $search,
     'camera' => $camera,
+    'album_id' => $albumId,
     'date_from' => $dateFrom,
     'date_to' => $dateTo,
     'sort' => $sort === 'newest' ? '' : $sort,
 ];
-$hasFilters = $search !== '' || $camera !== '' || $dateFrom !== '' || $dateTo !== '' || $sort !== 'newest';
+$hasFilters = $search !== '' || $camera !== '' || $albumId !== null || $dateFrom !== '' || $dateTo !== '' || $sort !== 'newest';
 
 try {
+    $albumOptions = get_album_options(true);
     $cameraOptions = db()
         ->query("SELECT DISTINCT camera_model FROM photos WHERE camera_model IS NOT NULL AND camera_model <> '' ORDER BY camera_model ASC")
         ->fetchAll(PDO::FETCH_COLUMN);
@@ -60,23 +64,28 @@ try {
     $params = [];
 
     if ($search !== '') {
-        $where[] = '(title LIKE :search_title OR description LIKE :search_description)';
+        $where[] = '(photos.title LIKE :search_title OR photos.description LIKE :search_description)';
         $params['search_title'] = '%' . $search . '%';
         $params['search_description'] = '%' . $search . '%';
     }
 
     if ($camera !== '') {
-        $where[] = 'camera_model = :camera';
+        $where[] = 'photos.camera_model = :camera';
         $params['camera'] = $camera;
     }
 
+    if ($albumId !== null) {
+        $where[] = 'photos.album_id = :album_id';
+        $params['album_id'] = $albumId;
+    }
+
     if ($dateFrom !== '') {
-        $where[] = 'taken_at >= :date_from';
+        $where[] = 'photos.taken_at >= :date_from';
         $params['date_from'] = $dateFrom . ' 00:00:00';
     }
 
     if ($dateTo !== '') {
-        $where[] = 'taken_at <= :date_to';
+        $where[] = 'photos.taken_at <= :date_to';
         $params['date_to'] = $dateTo . ' 23:59:59';
     }
 
@@ -93,8 +102,9 @@ try {
     $offset = ($page - 1) * $perPage;
 
     $stmt = db()->prepare(
-        'SELECT id, title, thumbnail_filename, camera_model, taken_at
-        FROM photos' . $whereSql . '
+        'SELECT photos.id, photos.title, photos.thumbnail_filename, photos.camera_model, photos.taken_at, albums.name AS album_name
+        FROM photos
+        LEFT JOIN albums ON albums.id = photos.album_id' . $whereSql . '
         ORDER BY ' . $sortSql[$sort] . '
         LIMIT :limit OFFSET :offset'
     );
@@ -127,6 +137,17 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
             <option value="">Усі камери</option>
             <?php foreach ($cameraOptions as $cameraOption): ?>
                 <option value="<?= h((string) $cameraOption) ?>" <?= (string) $cameraOption === $camera ? 'selected' : '' ?>><?= h((string) $cameraOption) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </label>
+    <label>
+        Альбом
+        <select name="album_id">
+            <option value="">Усі альбоми</option>
+            <?php foreach ($albumOptions as $album): ?>
+                <option value="<?= h((string) $album['id']) ?>" <?= (int) $album['id'] === $albumId ? 'selected' : '' ?>>
+                    <?= h($album['name'] . ' (' . (int) $album['photo_count'] . ')') ?>
+                </option>
             <?php endforeach; ?>
         </select>
     </label>
@@ -164,7 +185,7 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
                     <img src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>" alt="<?= h($photo['title']) ?>" width="600" height="400" loading="lazy">
                     <span><?= h($photo['title']) ?></span>
                 </a>
-                <p><?= h($photo['taken_at'] ?: ($photo['camera_model'] ?: 'Немає даних')) ?></p>
+                <p><?= h($photo['album_name'] ?: ($photo['taken_at'] ?: ($photo['camera_model'] ?: 'Немає даних'))) ?></p>
             </article>
         <?php endforeach; ?>
     </div>

@@ -13,8 +13,18 @@ CREATE TABLE IF NOT EXISTS `admins` (
   UNIQUE KEY `idx_admins_username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `albums` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(100) NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_albums_name` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `photos` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `album_id` INT UNSIGNED NULL,
   `filename` VARCHAR(255) NOT NULL,
   `thumbnail_filename` VARCHAR(255) NOT NULL,
   `original_name` VARCHAR(255) NOT NULL,
@@ -32,10 +42,12 @@ CREATE TABLE IF NOT EXISTS `photos` (
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  KEY `idx_photos_album_id` (`album_id`),
   KEY `idx_photos_taken_at` (`taken_at`),
   KEY `idx_photos_created_at` (`created_at`),
   KEY `idx_photos_camera_model` (`camera_model`),
-  KEY `idx_photos_title` (`title`)
+  KEY `idx_photos_title` (`title`),
+  CONSTRAINT `fk_photos_album_id` FOREIGN KEY (`album_id`) REFERENCES `albums` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `login_attempts` (

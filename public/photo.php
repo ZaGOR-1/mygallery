@@ -13,7 +13,12 @@ if ($id === null || $id < 1) {
 }
 
 try {
-    $stmt = db()->prepare('SELECT * FROM photos WHERE id = :id');
+    $stmt = db()->prepare(
+        'SELECT photos.*, albums.name AS album_name
+        FROM photos
+        LEFT JOIN albums ON albums.id = photos.album_id
+        WHERE photos.id = :id'
+    );
     $stmt->execute(['id' => $id]);
     $photo = $stmt->fetch();
 } catch (Throwable) {
@@ -68,6 +73,9 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
     <header class="photo-view-header">
         <div>
             <h1><?= h($photo['title']) ?></h1>
+            <?php if (!empty($photo['album_name'])): ?>
+                <p><a class="muted-link" href="<?= h(url('gallery.php?album_id=' . (int) $photo['album_id'])) ?>"><?= h($photo['album_name']) ?></a></p>
+            <?php endif; ?>
             <p><?= h($photo['description'] ?: 'Без опису') ?></p>
         </div>
         <?php if (is_admin_logged_in()): ?>

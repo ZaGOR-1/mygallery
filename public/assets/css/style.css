@@ -422,6 +422,10 @@ button.button {
     color: var(--accent);
 }
 
+.muted-link {
+    color: var(--accent);
+}
+
 .exif-panel {
     padding: 22px;
     background: var(--panel);
@@ -498,7 +502,7 @@ textarea:focus {
 
 .filter-panel {
     display: grid;
-    grid-template-columns: minmax(180px, 1.4fr) minmax(160px, 1fr) minmax(140px, 0.8fr) minmax(140px, 0.8fr) minmax(170px, 1fr) auto;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 14px;
     align-items: end;
     margin-bottom: 28px;
@@ -509,6 +513,13 @@ textarea:focus {
 
 .filter-actions {
     display: flex;
+    gap: 8px;
+}
+
+.toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 8px;
 }
 
@@ -540,6 +551,10 @@ textarea:focus {
     padding: 14px;
     background: var(--panel);
     border: 1px solid var(--line);
+}
+
+.album-item {
+    grid-template-columns: 1fr auto;
 }
 
 .admin-item img,
@@ -592,6 +607,10 @@ textarea:focus {
 
     .admin-item {
         grid-template-columns: 96px 1fr;
+    }
+
+    .album-item {
+        grid-template-columns: 1fr;
     }
 
     .admin-item img {

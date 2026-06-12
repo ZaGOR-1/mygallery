@@ -9,11 +9,22 @@ require_admin();
 
 $pageTitle = 'Завантаження фото - ' . app_name();
 $errors = [];
+$albumOptions = [];
+$selectedAlbumId = null;
+$newAlbumName = '';
 $serverUploadLimit = upload_server_limit();
 $appUploadLimit = (int) app_config()['UPLOAD_MAX_SIZE'];
 $maxUploadSize = $serverUploadLimit > 0 ? min($appUploadLimit, $serverUploadLimit) : $appUploadLimit;
 
+try {
+    $albumOptions = get_album_options();
+} catch (Throwable) {
+    $errors[] = 'Не вдалося завантажити список альбомів. Перевірте схему бази даних.';
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $selectedAlbumId = get_album_id_from_post('album_id');
+    $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
     $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
     $requestTooLarge = $serverUploadLimit > 0 && $contentLength > $serverUploadLimit;
 
@@ -58,6 +69,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    $albumId = null;
+    if (empty($errors)) {
+        try {
+            $albumId = resolve_album_id_from_post();
+        } catch (InvalidArgumentException $exception) {
+            $errors[] = $exception->getMessage();
+        }
+    }
+
     if (empty($errors)) {
         $originalPath = null;
         $largePath = null;
@@ -85,12 +105,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = db()->prepare(
                 'INSERT INTO photos
-                (filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json)
+                (album_id, filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json)
                 VALUES
-                (:filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json)'
+                (:album_id, :filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json)'
             );
 
             $stmt->execute([
+                'album_id' => $albumId,
                 'filename' => $filename,
                 'thumbnail_filename' => $thumbnailFilename,
                 'original_name' => safe_original_name((string) $file['name']),
@@ -147,6 +168,19 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <label>
             Опис
             <textarea name="description" rows="5"></textarea>
+        </label>
+        <label>
+            Альбом
+            <select name="album_id">
+                <option value="">Без альбому</option>
+                <?php foreach ($albumOptions as $album): ?>
+                    <option value="<?= h((string) $album['id']) ?>" <?= (int) $album['id'] === $selectedAlbumId ? 'selected' : '' ?>><?= h($album['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>
+            Новий альбом
+            <input type="text" name="new_album_name" value="<?= h($newAlbumName) ?>" maxlength="100" placeholder="Заповніть, якщо треба створити новий">
         </label>
         <label>
             JPEG-файл

@@ -1,6 +1,6 @@
 # My Photo Gallery
 
-MVP персональної фотогалереї на PHP 8.2+, Apache і MySQL/MariaDB. Проєкт підтримує завантаження JPG/JPEG, створення прев’ю через GD, читання EXIF, пошук і фільтри, лайтбокс із зумом, просту адмінпанель, редагування та видалення фотографій.
+MVP персональної фотогалереї на PHP 8.2+, Apache і MySQL/MariaDB. Проєкт підтримує завантаження JPG/JPEG, створення прев’ю через GD, читання EXIF, пошук і фільтри, альбоми, лайтбокс із зумом, просту адмінпанель, редагування та видалення фотографій.
 
 ## Можливості
 
@@ -8,6 +8,7 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 - пагінація по 12 фотографій;
 - пошук за назвою, описом і назвою файла;
 - фільтри за камерою та датою зйомки;
+- прості альбоми з фільтром у галереї та адмінпанелі;
 - сортування за датою додавання, датою зйомки і назвою;
 - сторінка окремої фотографії з EXIF-даними;
 - перехід до попередньої та наступної фотографії;
@@ -31,6 +32,7 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 app/includes/              спільні PHP-функції, авторизація, CSRF, шаблони
 config/                    конфігурація застосунку і БД
 database/schema.sql        структура бази
+database/migrations/       SQL-міграції для вже встановленої бази
 public/                    єдина публічна папка сайту
 public/admin/              адміністративні сторінки
 public/assets/             CSS і JavaScript
@@ -40,6 +42,7 @@ public/uploads/thumbnails  прев’ю
 storage/originals          приватні byte-for-byte оригінальні JPEG
 storage/trash              тимчасовий кошик під час видалення
 storage/logs               приватні логи застосунку
+storage/sessions           приватні PHP session-файли
 tools/setup.php            консольне створення першого адміністратора
 tools/cleanup_orphans.php  перевірка зайвих файлів у uploads
 tools/self_check.php       швидка перевірка структури, налаштувань і доступів
@@ -65,9 +68,10 @@ project/
 ## Користування
 
 - `gallery.php` підтримує GET-фільтри: пошук, камера, дата зйомки та сортування.
+- Альбоми створюються в `admin/albums.php` або прямо під час завантаження/редагування фото.
 - Картки в галереї відкривають сторінку окремої фотографії, щоб EXIF і навігація залишалися доступними без JavaScript.
 - На сторінці фото клік по зображенню відкриває лайтбокс. У лайтбоксі працюють кнопки `+` і `-`, колесико миші для зуму, перетягування ЛКМ і закриття через `Esc`.
-- В адмінпанелі список фотографій також підтримує пошук, фільтри та сортування.
+- В адмінпанелі список фотографій також підтримує пошук, фільтри за альбомом/камерою/датою та сортування.
 
 ## Встановлення на WampServer у Windows
 
@@ -140,7 +144,13 @@ C:\wamp64\bin\php\php8.3.14\php.exe tools\setup.php
 
 12. Відкрийте `http://mygallery/admin/login.php` і увійдіть.
 
-Схема створює таблиці `admins`, `photos` і `login_attempts`. Остання потрібна для серверного обмеження невдалих спроб входу.
+Схема створює таблиці `admins`, `albums`, `photos` і `login_attempts`. Остання потрібна для серверного обмеження невдалих спроб входу.
+
+Якщо база вже була створена до появи альбомів, після оновлення коду виконайте міграцію:
+
+```powershell
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery < database\migrations\2026_06_12_add_albums.sql
+```
 
 ## Встановлення на LAMP у VM Proxmox
 
@@ -157,6 +167,12 @@ sudo apt install apache2 mysql-server php php-mysql php-gd php-exif php-fileinfo
 
 ```bash
 mysql -u root -p < database/schema.sql
+```
+
+Якщо оновлюєте вже встановлену базу, застосуйте міграцію альбомів:
+
+```bash
+mysql -u gallery_user -p my_photo_gallery < database/migrations/2026_06_12_add_albums.sql
 ```
 
 5. Створіть окремого користувача БД:
@@ -186,10 +202,10 @@ php tools/setup.php
 
 ```bash
 sudo chown -R root:www-data /var/www/mygallery
-sudo chown -R www-data:www-data /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
+sudo chown -R www-data:www-data /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/storage/sessions /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
 sudo find /var/www/mygallery -type d -exec chmod 750 {} \;
 sudo find /var/www/mygallery -type f -exec chmod 640 {} \;
-sudo chmod 750 /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
+sudo chmod 750 /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/storage/sessions /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
 ```
 
 Не використовуйте `chmod 777`.
@@ -300,6 +316,7 @@ ServerSignature Off
 - приватні фотографії зі `storage/originals`;
 - реальні файли з `public/uploads/large` і `public/uploads/thumbnails`;
 - логи зі `storage/logs`;
+- runtime session-файли зі `storage/sessions`;
 - локальні backup/tmp/archive-файли.
 
 Залишайте в архіві `config/database.example.php`, `database/schema.sql`, код проєкту і `.gitkeep`-файли для порожніх папок.
@@ -309,6 +326,7 @@ ServerSignature Off
 1. Створіть адміністратора через `php tools/setup.php`.
 2. Увійдіть в адмінпанель.
 3. Завантажте JPEG-файл.
-4. Перевірте галерею, пошук, фільтри, сортування і пагінацію.
-5. Перевірте сторінку фото, EXIF, перехід до попередньої/наступної фотографії та лайтбокс із зумом.
-6. Перевірте редагування та видалення.
+4. Створіть альбом і прив’яжіть до нього фото.
+5. Перевірте галерею, пошук, фільтри за альбомом/камерою/датою, сортування і пагінацію.
+6. Перевірте сторінку фото, EXIF, перехід до попередньої/наступної фотографії та лайтбокс із зумом.
+7. Перевірте редагування, зміну альбому та видалення.
