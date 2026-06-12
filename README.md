@@ -47,6 +47,7 @@ tools/setup.php            консольне створення першого 
 tools/cleanup_orphans.php  перевірка зайвих файлів у uploads
 tools/self_check.php       швидка перевірка структури, налаштувань і доступів
 POST_MVP_ROADMAP.md        список наступних покращень після MVP
+IMPLEMENTED_FEATURES.md    архів уже реалізованих можливостей
 ```
 
 Apache має дивитися саме в `public/`. Папки `app/`, `config/`, `database/`, `storage/`, `tools/` і `README.md` не повинні бути доступні напряму через браузер.

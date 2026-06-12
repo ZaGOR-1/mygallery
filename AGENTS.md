@@ -338,6 +338,7 @@ MyPhotoGallery/
 │   └── self_check.php
 ├── .gitignore
 ├── AGENTS.md
+├── IMPLEMENTED_FEATURES.md
 ├── POST_MVP_ROADMAP.md
 └── README.md
 ```
