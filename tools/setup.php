@@ -19,40 +19,9 @@ function ask(string $label): string
 
 function ask_secret(string $label): string
 {
-    if (DIRECTORY_SEPARATOR === '\\') {
-        $prompt = trim($label, ": \t\n\r\0\x0B");
-        $prompt = str_replace("'", "''", $prompt);
-        $script = "\$secure = Read-Host -Prompt '" . $prompt . "' -AsSecureString; "
-            . "\$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR(\$secure); "
-            . "try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR(\$bstr) } "
-            . "finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR(\$bstr) }";
-        $utf16Script = function_exists('mb_convert_encoding')
-            ? mb_convert_encoding($script, 'UTF-16LE', 'UTF-8')
-            : iconv('UTF-8', 'UTF-16LE', $script);
+    fwrite(STDERR, "Увага: у цьому portable setup пароль буде видно під час введення. Не запускайте його в записуваній/shared-консолі.\n");
 
-        if ($utf16Script === false) {
-            fwrite(STDERR, "Не вдалося підготувати приховане введення пароля.\n");
-            return ask($label);
-        }
-
-        $encoded = base64_encode($utf16Script);
-        $value = shell_exec('powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' . escapeshellarg($encoded));
-
-        if (is_string($value)) {
-            return trim($value);
-        }
-
-        fwrite(STDERR, "Не вдалося приховати введення пароля. Перевірте PowerShell.\n");
-        return ask($label);
-    }
-
-    echo $label;
-    system('stty -echo');
-    $value = fgets(STDIN);
-    system('stty echo');
-    echo PHP_EOL;
-
-    return trim($value === false ? '' : $value);
+    return ask($label);
 }
 
 try {

@@ -22,6 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $albumName = clean_album_name((string) ($_POST['name'] ?? ''));
 
     if (empty($errors)) {
+        $pdo = null;
+
         try {
             if ($action === 'create') {
                 if ($albumName === '') {
@@ -42,7 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new InvalidArgumentException('Назва альбому не може бути порожньою.');
                 }
 
-                $stmt = db()->prepare('UPDATE albums SET name = :name WHERE id = :id');
+                $pdo = db();
+                $stmt = $pdo->prepare('UPDATE albums SET name = :name WHERE id = :id');
                 $stmt->execute([
                     'name' => $albumName,
                     'id' => $albumId,
@@ -85,14 +88,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $errors[] = 'Невідома дія.';
         } catch (InvalidArgumentException $exception) {
-            if (db()->inTransaction()) {
-                db()->rollBack();
+            if ($pdo instanceof PDO && $pdo->inTransaction()) {
+                $pdo->rollBack();
             }
 
             $errors[] = $exception->getMessage();
         } catch (Throwable $exception) {
-            if (db()->inTransaction()) {
-                db()->rollBack();
+            if ($pdo instanceof PDO && $pdo->inTransaction()) {
+                $pdo->rollBack();
             }
 
             app_log_exception($exception, 'Album admin action failed');

@@ -147,17 +147,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Throwable $exception) {
             app_log_exception($exception, 'Upload failed');
 
-            if (is_string($originalPath) && is_file($originalPath)) {
-                unlink($originalPath);
-            }
-
-            if (is_string($largePath) && is_file($largePath)) {
-                unlink($largePath);
-            }
-
-            if (is_string($thumbnailPath) && is_file($thumbnailPath)) {
-                unlink($thumbnailPath);
-            }
+            unlink_file_with_log($originalPath, 'Upload cleanup');
+            unlink_file_with_log($largePath, 'Upload cleanup');
+            unlink_file_with_log($thumbnailPath, 'Upload cleanup');
 
             $errors[] = 'Не вдалося зберегти фотографію. Перевірте права на uploads і налаштування PHP GD.';
         }

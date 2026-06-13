@@ -65,11 +65,9 @@ try {
     $where = [];
     $params = [];
 
-    if ($search !== '') {
-        $where[] = '(photos.title LIKE :search_title OR photos.description LIKE :search_description OR photos.original_name LIKE :search_original)';
-        $params['search_title'] = '%' . $search . '%';
-        $params['search_description'] = '%' . $search . '%';
-        $params['search_original'] = '%' . $search . '%';
+    $searchCondition = photo_search_condition($search, true, $params);
+    if ($searchCondition !== '') {
+        $where[] = $searchCondition;
     }
 
     if ($camera !== '') {
@@ -105,7 +103,7 @@ try {
     $offset = ($page - 1) * $perPage;
 
     $stmt = db()->prepare(
-        'SELECT photos.id, photos.title, photos.thumbnail_filename, photos.original_name, photos.camera_model, photos.created_at, albums.name AS album_name
+        'SELECT photos.id, photos.filename, photos.thumbnail_filename, photos.width, photos.title, photos.original_name, photos.camera_model, photos.created_at, albums.name AS album_name
         FROM photos
         LEFT JOIN albums ON albums.id = photos.album_id' . $whereSql . '
         ORDER BY ' . $sortSql[$sort] . '
@@ -190,7 +188,15 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
     <div class="admin-list">
         <?php foreach ($photos as $photo): ?>
             <article class="admin-item">
-                <img src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>" alt="<?= h($photo['title']) ?>" width="600" height="400" loading="lazy">
+                <img
+                    src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
+                    srcset="<?= h(photo_responsive_srcset($photo)) ?>"
+                    sizes="<?= h(photo_card_sizes()) ?>"
+                    alt="<?= h($photo['title']) ?>"
+                    width="600"
+                    height="400"
+                    loading="lazy"
+                >
                 <div>
                     <h2><?= h($photo['title']) ?></h2>
                     <p><?= h($photo['original_name']) ?></p>

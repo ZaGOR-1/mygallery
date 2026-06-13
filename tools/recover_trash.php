@@ -37,18 +37,30 @@ foreach ($manifests as $manifestPath) {
     echo basename($manifestPath) . ': photo_id=' . $photoId . ', db_row=' . ($exists ? 'exists' : 'missing') . "\n";
 
     foreach (($manifest['files'] ?? []) as $file) {
-        $from = (string) ($file['from'] ?? '');
-        $trash = (string) ($file['trash'] ?? '');
+        $resolved = resolve_trash_manifest_entry((array) $file);
+
+        if ($resolved === null || $resolved['from'] === null || $resolved['trash'] === null) {
+            echo "  skip invalid manifest file entry\n";
+            continue;
+        }
+
+        $from = $resolved['from'];
+        $trash = $resolved['trash'];
+        $filename = $resolved['filename'];
 
         if ($exists) {
-            echo "  restore $trash -> $from\n";
+            echo "  restore $filename\n";
             if ($apply && is_file($trash) && !is_file($from)) {
-                @rename($trash, $from);
+                if (!@rename($trash, $from)) {
+                    echo "  restore failed: $filename\n";
+                }
             }
         } elseif ($purgeDeleted) {
-            echo "  purge $trash\n";
+            echo "  purge $filename\n";
             if ($apply && is_file($trash)) {
-                @unlink($trash);
+                if (!@unlink($trash)) {
+                    echo "  purge failed: $filename\n";
+                }
             }
         }
     }

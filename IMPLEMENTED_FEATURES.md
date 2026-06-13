@@ -13,6 +13,8 @@
 - Фільтрація за датою зйомки.
 - Сортування за датою додавання, датою зйомки і назвою.
 - Lazy loading для прев’ю.
+- Responsive images через `srcset` і `sizes`.
+- FULLTEXT-пошук із fallback на `LIKE`, якщо індекс ще не застосований.
 
 ## Сторінка фото
 
@@ -28,6 +30,7 @@
 
 - Login/logout через PHP Session.
 - Idle timeout для адмін-сесії.
+- Періодична перевірка, що `admin_id` досі існує в БД.
 - Список фото в адмінпанелі.
 - Пошук, фільтри і сортування в адмінпанелі.
 - Upload JPEG.
@@ -72,9 +75,11 @@
 - Dummy password hash для невідомих username.
 - Fail-fast session handling.
 - Production guard для `APP_DEBUG`, HTTPS і небезпечного DB-root без пароля.
+- HSTS header для HTTPS-запитів у `APP_ENV=production`.
 - Приватне сховище оригіналів поза `public/`.
 - Заборона виконання PHP у `public/uploads` через `.htaccess`.
 - Базові security headers.
+- Hardened trash recovery: manifest-записи перевіряються перед restore/purge.
 
 ## База даних
 
@@ -82,6 +87,7 @@
 - Foreign key `photos.album_id -> albums.id` з `ON DELETE SET NULL`.
 - Індекси для дат, камер, альбомів, назв і login limiter.
 - Unique indexes для `photos.filename` і `photos.thumbnail_filename`.
+- FULLTEXT indexes для публічного й адмінського пошуку.
 
 ## CLI tools
 
@@ -99,3 +105,4 @@
 - `POST_MVP_ROADMAP.md` — майбутні задачі.
 - `FIXES_APPLIED.md` — уже внесені виправлення.
 - `AUDIT_REPORT.md` — короткий актуальний summary аудиту.
+- `FULL_PROJECT_AUDIT.md` — детальний аудит.

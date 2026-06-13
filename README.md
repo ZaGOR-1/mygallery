@@ -13,6 +13,7 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 - головна сторінка й адаптивна галерея;
 - пагінація по 12 фотографій;
 - пошук за назвою, описом і назвою файла;
+- FULLTEXT-пошук із fallback на `LIKE`, якщо індекси ще не застосовані;
 - фільтри за альбомом, камерою та датою зйомки;
 - сортування за датою додавання, датою зйомки і назвою;
 - сторінка окремої фотографії з EXIF-даними;
@@ -30,6 +31,7 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 - приватне byte-for-byte зберігання оригінальних JPEG у `storage/originals`;
 - веб-версія фото до 2400 px завширшки;
 - прев’ю до 600 px завширшки;
+- responsive images через `srcset` і `sizes`;
 - автоматичне виправлення EXIF Orientation;
 - базові security headers;
 - службові CLI-інструменти для setup, self-check, cleanup, міграції legacy originals і recovery trash.
@@ -64,6 +66,7 @@ BUGS.md                               відомі обмеження і пот�
 POST_MVP_ROADMAP.md                   майбутні задачі, не список уже реалізованого
 FIXES_APPLIED.md                      історія hardening-виправлень
 AUDIT_REPORT.md                       короткий підсумок останнього аудиту
+FULL_PROJECT_AUDIT.md                 детальний технічний аудит
 ```
 
 Apache або Nginx має відкривати тільки папку `public/`. Папки `app/`, `config/`, `database/`, `storage/`, `tools/` і markdown-документи не повинні бути доступні напряму через браузер.
@@ -121,7 +124,8 @@ DocumentRoot "c:/wamp64/domains/mygallery/public"
 6. Створіть базу і таблиці:
 
 ```powershell
-C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root --execute="source database/schema.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root --execute="CREATE DATABASE IF NOT EXISTS my_photo_gallery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/schema.sql"
 ```
 
 7. Скопіюйте `config/database.example.php` у `config/database.php`.
@@ -175,11 +179,11 @@ C:\wamp64\bin\php\php8.3.14\php.exe tools\self_check.php
 Якщо база вже існувала раніше, застосуйте міграції по черзі:
 
 ```powershell
-C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery < database\migrations\2026_06_12_add_albums.sql
-C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery < database\migrations\2026_06_13_hardening.sql
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_12_add_albums.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_13_hardening.sql"
 ```
 
-За замовчуванням SQL-файли використовують базу `my_photo_gallery`. Якщо на сервері база називається інакше, перед імпортом змініть або приберіть рядок `USE my_photo_gallery;` у SQL-файлах.
+SQL-файли не містять `USE`, тому застосовуються до бази, яку ви явно передали в команді `mysql ... database_name < file.sql`.
 
 ## Встановлення на LAMP у VM Proxmox
 
@@ -197,7 +201,8 @@ sudo apt install apache2 mysql-server php php-mysql php-gd php-exif php-mbstring
 4. Створіть БД і імпортуйте схему:
 
 ```bash
-mysql -u root -p < database/schema.sql
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS my_photo_gallery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -u root -p my_photo_gallery < database/schema.sql
 ```
 
 5. Створіть окремого користувача БД:
@@ -272,6 +277,7 @@ sudo systemctl reload apache2
 - окремий користувач БД, не `root` без пароля;
 - складний пароль адміністратора;
 - HTTPS через Let’s Encrypt або інший сертифікат;
+- HSTS автоматично додається застосунком для `APP_ENV=production` і HTTPS-запитів;
 - Apache/Nginx відкриває тільки `public/`;
 - `storage/` не входить у `DocumentRoot`;
 - у `public/uploads` не виконується PHP;
@@ -291,7 +297,7 @@ ServerTokens Prod
 ServerSignature Off
 ```
 
-Для HTTPS-production додатково бажано налаштувати HSTS на рівні Apache/Nginx. У поточному коді це винесено в roadmap, щоб не зламати локальний HTTP-режим.
+Для HTTPS-production застосунок додає HSTS тільки на реальних HTTPS-запитах у `APP_ENV=production`. HTTP -> HTTPS redirect краще налаштовувати на рівні Apache/Nginx або reverse proxy, щоб не ламати локальний HTTP-режим.
 
 ## Службові інструменти
 
@@ -300,6 +306,8 @@ ServerSignature Off
 ```bash
 php tools/setup.php
 ```
+
+`setup.php` не приймає пароль через аргументи CLI. У portable-режимі пароль вводиться через stdin і може бути видимим у консолі, тому запускайте tool тільки в приватній локальній або серверній shell-сесії.
 
 Самоперевірка структури, конфігурації, модулів і доступів:
 
@@ -385,6 +393,7 @@ DB_PASSWORD=strong_password
 - `BUGS.md` — відомі обмеження і потенційні баги.
 - `FIXES_APPLIED.md` — історія вже внесених hardening-виправлень.
 - `AUDIT_REPORT.md` — короткий підсумок останнього аудиту.
+- `FULL_PROJECT_AUDIT.md` — детальний аудит із findings і статусом виправлень.
 - `AGENTS.md` — правила для AI/Codex-агента, який буде змінювати проєкт.
 
 ## Після встановлення

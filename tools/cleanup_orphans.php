@@ -11,6 +11,15 @@ if (PHP_SAPI !== 'cli') {
 
 $delete = in_array('--delete', $argv, true);
 
+function display_media_path(string $root, string $folder, string $filename): string
+{
+    if ($root === 'public') {
+        return 'public' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . $folder . DIRECTORY_SEPARATOR . $filename;
+    }
+
+    return $root . DIRECTORY_SEPARATOR . $folder . DIRECTORY_SEPARATOR . $filename;
+}
+
 try {
     $photos = db()->query('SELECT id, filename, thumbnail_filename FROM photos')->fetchAll();
 } catch (Throwable $exception) {
@@ -92,7 +101,7 @@ if (empty($orphans)) {
 } else {
     echo "Знайдено orphan/legacy-файли: " . count($orphans) . "\n";
     foreach ($orphans as [$root, $folder, $filename, $reason]) {
-        echo $root . DIRECTORY_SEPARATOR . $folder . DIRECTORY_SEPARATOR . $filename . ' [' . $reason . "]\n";
+        echo display_media_path($root, $folder, $filename) . ' [' . $reason . "]\n";
     }
 }
 
@@ -110,7 +119,7 @@ foreach ($orphans as [$root, $folder, $filename]) {
 
     if ($path === null || !@unlink($path)) {
         $errors++;
-        fwrite(STDERR, "Не вдалося видалити: " . $root . DIRECTORY_SEPARATOR . $folder . DIRECTORY_SEPARATOR . $filename . "\n");
+        fwrite(STDERR, "Не вдалося видалити: " . display_media_path($root, $folder, $filename) . "\n");
     }
 }
 

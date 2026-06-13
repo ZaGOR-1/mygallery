@@ -1,5 +1,3 @@
-USE `my_photo_gallery`;
-
 CREATE TABLE IF NOT EXISTS `albums` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(100) NOT NULL,

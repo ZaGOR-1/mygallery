@@ -146,6 +146,92 @@ function check_orientation_cases(): void
     }
 }
 
+function check_required_extensions(): void
+{
+    $missing = missing_php_extensions();
+
+    assert_true(empty($missing), 'Missing PHP extensions: ' . implode(', ', $missing));
+}
+
+function check_config_files(): void
+{
+    assert_true(is_file(project_root_path('config' . DIRECTORY_SEPARATOR . 'config.php')), 'config/config.php missing.');
+    assert_true(is_file(project_root_path('config' . DIRECTORY_SEPARATOR . 'database.example.php')), 'config/database.example.php missing.');
+    assert_true(is_file(project_root_path('config' . DIRECTORY_SEPARATOR . 'database.php')), 'config/database.php missing.');
+    assert_true((string) app_config()['APP_URL'] !== '', 'APP_URL is empty.');
+}
+
+function check_required_directories(): void
+{
+    $requiredDirectories = [
+        project_root_path('app' . DIRECTORY_SEPARATOR . 'includes'),
+        project_root_path('config'),
+        project_root_path('database'),
+        public_path(),
+        public_path('admin'),
+        public_path('assets'),
+        public_path('uploads'),
+        uploads_path('originals'),
+        uploads_path('large'),
+        uploads_path('thumbnails'),
+        storage_path(),
+        originals_path(),
+        trash_path(),
+        storage_path('logs'),
+        storage_path('sessions'),
+        project_root_path('tools'),
+    ];
+
+    foreach ($requiredDirectories as $directory) {
+        assert_true(is_dir($directory), 'Required directory missing: ' . $directory);
+    }
+}
+
+function check_writable_directories(): void
+{
+    $writableDirectories = [
+        originals_path(),
+        trash_path(),
+        storage_path('logs'),
+        storage_path('sessions'),
+        uploads_path('large'),
+        uploads_path('thumbnails'),
+    ];
+
+    foreach ($writableDirectories as $directory) {
+        assert_true(is_writable($directory), 'Directory is not writable: ' . $directory);
+    }
+}
+
+function check_upload_protection_files(): void
+{
+    assert_true(is_file(public_path('uploads' . DIRECTORY_SEPARATOR . '.htaccess')), 'public/uploads/.htaccess missing.');
+    assert_true(is_file(uploads_path('originals', '.htaccess')), 'public/uploads/originals/.htaccess missing.');
+}
+
+function check_gitkeep_files(): void
+{
+    $gitkeepFiles = [
+        originals_path('.gitkeep'),
+        trash_path('.gitkeep'),
+        storage_path('logs' . DIRECTORY_SEPARATOR . '.gitkeep'),
+        storage_path('sessions' . DIRECTORY_SEPARATOR . '.gitkeep'),
+        uploads_path('large', '.gitkeep'),
+        uploads_path('thumbnails', '.gitkeep'),
+        uploads_path('originals', '.gitkeep'),
+    ];
+
+    foreach ($gitkeepFiles as $file) {
+        assert_true(is_file($file), 'Required .gitkeep missing: ' . $file);
+    }
+}
+
+check_required_extensions();
+check_config_files();
+check_required_directories();
+check_writable_directories();
+check_upload_protection_files();
+check_gitkeep_files();
 check_csrf_cases();
 check_orientation_cases();
 

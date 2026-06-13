@@ -16,12 +16,30 @@ function is_admin_logged_in(): bool
         return false;
     }
 
+    $adminId = (int) $_SESSION['admin_id'];
     $lastActivity = (int) ($_SESSION['admin_last_activity'] ?? 0);
     $idleLimit = 3600;
 
     if ($lastActivity > 0 && (time() - $lastActivity) > $idleLimit) {
         logout_admin();
         return false;
+    }
+
+    $lastAdminCheck = (int) ($_SESSION['admin_checked_at'] ?? 0);
+
+    if ($lastAdminCheck === 0 || (time() - $lastAdminCheck) > 60) {
+        try {
+            if (!admin_exists($adminId)) {
+                logout_admin();
+                return false;
+            }
+
+            $_SESSION['admin_checked_at'] = time();
+        } catch (Throwable $exception) {
+            app_log_exception($exception, 'Admin session freshness check failed');
+            logout_admin();
+            return false;
+        }
     }
 
     $_SESSION['admin_last_activity'] = time();
@@ -47,6 +65,7 @@ function login_admin(array $admin): void
     $_SESSION['admin_username'] = (string) $admin['username'];
     $_SESSION['admin_login_at'] = time();
     $_SESSION['admin_last_activity'] = time();
+    $_SESSION['admin_checked_at'] = time();
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 

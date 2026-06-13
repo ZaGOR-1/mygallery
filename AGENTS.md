@@ -13,11 +13,14 @@
 - приватні оригінали в `storage/originals`;
 - large-версії і thumbnails;
 - пошук, фільтри, сортування;
+- FULLTEXT-пошук із fallback на LIKE;
 - альбоми;
 - адмінпанель;
 - CSRF;
 - login rate limiter;
 - лайтбокс із zoom/pan;
+- production HSTS для HTTPS;
+- responsive images через `srcset`/`sizes`;
 - CLI tools для setup, self-check, cleanup, legacy migration і trash recovery.
 
 Перед плануванням нової фічі перевір `IMPLEMENTED_FEATURES.md`, щоб не реалізовувати повторно те, що вже є.
@@ -149,7 +152,8 @@ mygallery/
 ├── BUGS.md
 ├── POST_MVP_ROADMAP.md
 ├── FIXES_APPLIED.md
-└── AUDIT_REPORT.md
+├── AUDIT_REPORT.md
+└── FULL_PROJECT_AUDIT.md
 ```
 
 ## Правила для upload
@@ -219,7 +223,7 @@ PDO::ATTR_EMULATE_PREPARES => false,
 - `photos`;
 - `login_attempts`.
 
-Поточний known issue: SQL-файли за замовчуванням використовують `USE my_photo_gallery;`. Якщо робиш наступний hardening, пріоритетна задача — portable migrations без жорсткої назви БД.
+SQL-файли portable і не містять `USE my_photo_gallery;`. README-команди мають явно передавати назву БД у CLI.
 
 ## Безпека
 
@@ -257,12 +261,12 @@ PDO::ATTR_EMULATE_PREPARES => false,
 Поточний стан:
 
 - є idle timeout;
+- `admin_id` періодично перевіряється в БД;
 - сесія стартує fail-fast;
 - CSRF регенерується після login.
 
 Майбутнє P1-покращення:
 
-- перевіряти, що `admin_id` досі існує в БД;
 - за потреби додати `session_version` або `password_changed_at`, щоб старі сесії інвалідовувалися після зміни пароля.
 
 ## Delete і trash recovery
@@ -302,6 +306,7 @@ PDO::ATTR_EMULATE_PREPARES => false,
 - `BUGS.md` — відомі обмеження і потенційні баги.
 - `FIXES_APPLIED.md` — історія вже внесених виправлень.
 - `AUDIT_REPORT.md` — короткий актуальний summary аудиту.
+- `FULL_PROJECT_AUDIT.md` — детальний аудит із findings і статусом виправлень.
 
 Якщо реалізуєш пункт із roadmap:
 

@@ -12,7 +12,7 @@
 
 Найбільш правильний порядок розвитку:
 
-1. Спочатку закрити невеликі production-ризики: SQL-міграції без жорсткого `USE`, legacy originals, HSTS, session freshness, trash recovery.
+1. Спочатку закрити невеликі production-ризики, які ще лишилися: завершення UX для trash recovery, health page і production-документацію для Nginx/backup.
 2. Потім додати admin health page, download оригіналу для адміна і CLI regeneration.
 3. Потім робити bulk upload і зручнішу адмінку.
 4. Теги, WebP/AVIF, RAW/NEF, API і приватні альбоми — тільки після стабілізації базового JPEG workflow.
@@ -34,58 +34,11 @@
 
 # P1 — технічні виправлення перед новими фічами
 
-## P1/S: Прибрати жорстку прив’язку SQL-міграцій до `my_photo_gallery`
-
-Проблема: у `database/schema.sql` і міграціях є `USE my_photo_gallery;`. Це нормально для локального WampServer, але незручно, якщо на production база має іншу назву.
-
-Що зробити:
-
-- або прибрати `USE` з міграцій і README-команди завжди передавати назву БД у CLI;
-- або залишити `schema.sql` для чистої локальної установки, але створити `database/migrations/*.portable.sql` без `USE`;
-- у README чітко описати обидва сценарії.
-
-Ймовірні файли:
-
-- `database/schema.sql`;
-- `database/migrations/2026_06_12_add_albums.sql`;
-- `database/migrations/2026_06_13_hardening.sql`;
-- `README.md`.
-
-Критерії готовності:
-
-- міграції можна імпортувати командою `mysql -u user -p database_name < migration.sql`;
-- міграції не перемикаються випадково на іншу базу;
-- README не суперечить SQL-файлам.
-
-Ризик: якщо просто прибрати `CREATE DATABASE`/`USE` зі `schema.sql`, локальний quick start стане менш зручним. Краще мати окремий portable-варіант або дуже чітку інструкцію.
-
-## P1/S: Остаточно закрити тему legacy originals
-
-Проблема: `public/uploads/originals` залишена для сумісності. На Apache вона закрита `.htaccess`, але на Nginx або поганому хостингу `.htaccess` може не працювати.
-
-Що зробити:
-
-- залишити папку тільки з `.gitkeep` і `.htaccess` або повністю прибрати її з нової інсталяції;
-- у `cleanup_orphans.php` явно пропонувати `migrate_legacy_originals.php`, якщо знайдено файли;
-- у README написати, що ця папка legacy-only і має бути порожньою;
-- для Nginx додати приклад deny-правила.
-
-Ймовірні файли:
-
-- `public/uploads/originals/`;
-- `tools/cleanup_orphans.php`;
-- `README.md`;
-- можливо `public/uploads/.htaccess`.
-
-Критерії готовності:
-
-- новий upload ніколи не пише у `public/uploads/originals`;
-- self-check або cleanup попереджає, якщо там є реальні JPEG;
-- документація прямо каже, що це не нормальне сховище.
-
 ## P1/S: Покращити `tools/recover_trash.php`
 
-Проблема: trash recovery уже є, але поведінку з manifest-файлами треба зробити чіткішою. Після успішного restore manifest має прибиратися або переноситися в окремий `recovered`/`done` стан, щоб не плутати адміністратора.
+Поточний стан: trash recovery уже валідує manifest-записи перед restore/purge і не довіряє абсолютним шляхам напряму. Залишилося зробити поведінку з успішно відновленими manifest-файлами зручнішою.
+
+Проблема: після успішного restore manifest має прибиратися або переноситися в окремий `recovered`/`done` стан, щоб не плутати адміністратора.
 
 Що зробити:
 
@@ -105,49 +58,6 @@
 - повторний запуск після успішного restore не показує стару успішно відновлену операцію як активну проблему;
 - dry-run нічого не змінює;
 - `--apply` явно повідомляє, що було зроблено.
-
-## P1/M: Перевіряти актуальність admin-сесії в БД
-
-Проблема: якщо admin-запис видалили або змінили пароль, стара сесія може залишатися валідною до timeout.
-
-Що зробити:
-
-- у `is_admin_logged_in()` періодично перевіряти, що `admin_id` досі існує;
-- додати поле `password_changed_at` або `session_version` тільки якщо справді треба invalidation після зміни пароля;
-- не робити запит до БД на кожен asset/request, але для admin-сторінок це нормально.
-
-Ймовірні файли:
-
-- `app/includes/auth.php`;
-- `database/schema.sql` або міграція, якщо буде `session_version`;
-- `public/admin/login.php`.
-
-Критерії готовності:
-
-- після видалення admin-запису стара сесія більше не дає доступ;
-- після зміни пароля можна інвалідовувати старі сесії;
-- idle timeout продовжує працювати.
-
-## P1/S: Додати HSTS для production
-
-Проблема: production вимагає HTTPS, але HSTS ще не налаштований.
-
-Що зробити:
-
-- додати `Strict-Transport-Security` тільки коли `APP_ENV=production` і `APP_URL` починається з `https://`;
-- не вмикати HSTS у локальному `http://mygallery`, щоб не зламати WampServer;
-- описати це в README.
-
-Ймовірні файли:
-
-- `app/includes/functions.php` або місце, де віддаються security headers;
-- `README.md`.
-
-Критерії готовності:
-
-- на local HTTP HSTS не віддається;
-- на production HTTPS HSTS віддається;
-- немає warning/headers already sent.
 
 ## P1/M: Посилити перевірки помилок GD і пам’яті
 
@@ -356,28 +266,15 @@
 
 Користь: це дуже природна навігація для фотогалереї й простіше за складну систему тегів.
 
-## P2/M: FULLTEXT-пошук для великої галереї
-
-Поточний пошук через `LIKE` нормальний для невеликої персональної галереї. Якщо фото стане багато, можна перейти на FULLTEXT.
-
-Що додати:
-
-- FULLTEXT index на `title`, `description`, `original_name`;
-- fallback на `LIKE`, якщо FULLTEXT недоступний;
-- перевірку сумісності MySQL/MariaDB.
-
-Ризик: FULLTEXT по-різному поводиться з короткими словами, мовами й стоп-словами. Не треба робити це зарано.
-
-## P2/M: Responsive images
+## P2/M: Medium image size для ще точнішого responsive delivery
 
 Що додати:
 
 - `public/uploads/medium`, наприклад 1200 px;
-- `srcset` для thumbnails/medium/large;
-- `sizes` у gallery cards;
+- додати medium у вже наявний `srcset` для thumbnails/large;
 - CLI-генерацію medium для старих фото.
 
-Ризик: без `tools/regenerate_images.php` ця задача незручна для вже завантажених фото.
+Ризик: без `tools/regenerate_images.php` ця задача незручна для вже завантажених фото. Базовий `srcset`/`sizes` уже є.
 
 ## P2/M: Теги
 
@@ -476,11 +373,9 @@ JPEG workflow уже стабільний. WebP/AVIF варто додавати
 
 ## Ітерація 1: маленький production-hardening
 
-1. Portable SQL migrations без жорсткого `USE my_photo_gallery`.
-2. HSTS тільки для production HTTPS.
-3. Покращений `recover_trash.php`.
-4. Admin session freshness.
-5. Документація для Nginx deny на legacy originals.
+1. Покращений UX для `recover_trash.php`.
+2. Документація для Nginx deny на legacy originals.
+3. Додаткові GD/memory перевірки.
 
 ## Ітерація 2: адміністраторські інструменти
 
@@ -499,8 +394,7 @@ JPEG workflow уже стабільний. WebP/AVIF варто додавати
 
 1. Archive by year/month.
 2. Stats page.
-3. FULLTEXT-пошук, якщо `LIKE` стане повільним.
-4. Теги, якщо альбомів стане замало.
+3. Теги, якщо альбомів стане замало.
 
 ## Що не робити зараз
 

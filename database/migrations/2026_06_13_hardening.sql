@@ -1,5 +1,3 @@
-USE `my_photo_gallery`;
-
 SET @index_exists = (
   SELECT COUNT(*)
   FROM information_schema.STATISTICS
@@ -12,6 +10,40 @@ SET @sql = IF(
   @index_exists = 0,
   'ALTER TABLE `photos` ADD UNIQUE KEY `idx_photos_filename_unique` (`filename`)',
   'SELECT "idx_photos_filename_unique already exists"'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'photos'
+    AND INDEX_NAME = 'idx_photos_public_search_fulltext'
+);
+
+SET @sql = IF(
+  @index_exists = 0,
+  'ALTER TABLE `photos` ADD FULLTEXT KEY `idx_photos_public_search_fulltext` (`title`, `description`)',
+  'SELECT "idx_photos_public_search_fulltext already exists"'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'photos'
+    AND INDEX_NAME = 'idx_photos_admin_search_fulltext'
+);
+
+SET @sql = IF(
+  @index_exists = 0,
+  'ALTER TABLE `photos` ADD FULLTEXT KEY `idx_photos_admin_search_fulltext` (`title`, `description`, `original_name`)',
+  'SELECT "idx_photos_admin_search_fulltext already exists"'
 );
 PREPARE stmt FROM @sql;
 EXECUTE stmt;

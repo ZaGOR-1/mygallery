@@ -66,6 +66,7 @@ try {
 $pageTitle = $photo['title'] . ' - ' . app_name();
 $exifRows = normalized_exif_for_display($photo['exif_json'], $photo);
 $photoImageUrl = photo_display_url($photo);
+$photoSrcset = photo_responsive_srcset($photo);
 
 require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php';
 ?>
@@ -92,6 +93,10 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
         >
             <img
                 src="<?= h($photoImageUrl) ?>"
+                <?php if ($photoSrcset !== ''): ?>
+                    srcset="<?= h($photoSrcset) ?>"
+                    sizes="<?= h(photo_view_sizes()) ?>"
+                <?php endif; ?>
                 alt="<?= h($photo['title']) ?>"
                 <?php if ((int) $photo['width'] > 0 && (int) $photo['height'] > 0): ?>
                     width="<?= h((string) (int) $photo['width']) ?>"

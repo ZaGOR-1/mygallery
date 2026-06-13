@@ -1,9 +1,3 @@
-CREATE DATABASE IF NOT EXISTS `my_photo_gallery`
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-USE `my_photo_gallery`;
-
 CREATE TABLE IF NOT EXISTS `admins` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `username` VARCHAR(100) NOT NULL,
@@ -49,6 +43,8 @@ CREATE TABLE IF NOT EXISTS `photos` (
   KEY `idx_photos_created_at` (`created_at`),
   KEY `idx_photos_camera_model` (`camera_model`),
   KEY `idx_photos_title` (`title`),
+  FULLTEXT KEY `idx_photos_public_search_fulltext` (`title`, `description`),
+  FULLTEXT KEY `idx_photos_admin_search_fulltext` (`title`, `description`, `original_name`),
   CONSTRAINT `fk_photos_album_id` FOREIGN KEY (`album_id`) REFERENCES `albums` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

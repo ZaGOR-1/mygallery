@@ -1,54 +1,33 @@
-# Audit report summary
+# Audit Report Summary
 
-Актуальний короткий підсумок аудиту для hardened release package.
+Останнє оновлення: 2026-06-13
 
-## Загальний висновок
+Детальний аудит: `FULL_PROJECT_AUDIT.md`.
 
-Проєкт у поточному стані виглядає добре для навчального PHP-проєкту і невеликої персональної фотогалереї. У коді не виявлено критичних проблем на рівні очевидного SQL injection, stored/reflected XSS, обходу адмінки, CSRF-дірки або завантаження PHP-shell замість фото.
+## Статус High/Medium
 
-## Що добре
+- Critical: 0
+- High: 1 знайдено, виправлено.
+- Medium: 6 знайдено, виправлено.
+- Low: 7 знайдено, виправлено або зведено до документованого майбутнього `session_version` після появи зміни пароля.
 
-- Release package не містить `.git/`, `config/database.php`, логів, session-файлів або приватних JPEG.
-- Apache/Nginx має відкривати тільки `public/`.
-- Нові оригінали зберігаються приватно в `storage/originals`.
-- Upload приймає тільки `image/jpeg` і додатково перевіряє файл через `getimagesize()`.
-- SQL-запити виконуються через PDO prepared statements.
-- POST-дії захищені CSRF.
-- Адмін-вхід має password hashing і login rate limiter.
-- `APP_DEBUG` за замовчуванням вимкнений.
-- Production startup блокує небезпечні налаштування.
-- Є CLI tools для setup, self-check, cleanup, legacy migration і trash recovery.
+## Що виправлено
 
-## Що ще бажано виправити
+- Legacy originals перенесені з `public/uploads/originals` у `storage/originals`.
+- Trash recovery більше не виконує restore/purge без validation manifest-записів.
+- Albums admin action rollback більше не викликає повторний `db()` у `catch`.
+- HSTS додається для production HTTPS.
+- `self_check.php` розширено до реальної перевірки структури, модулів, конфігів і доступів.
+- `cleanup_orphans.php` показує коректні public upload paths.
+- README, AGENTS, IMPLEMENTED_FEATURES, BUGS, FIXES_APPLIED і roadmap синхронізовані.
+- SQL schema/migrations стали portable без `USE`.
+- Upload cleanup логуватиме невдалі `unlink`.
+- Admin-сесія перевіряє існування admin-запису в БД.
+- Trash manifest більше не записує абсолютні шляхи.
+- `tools/setup.php` більше не залежить від shell-викликів.
+- Додано responsive `srcset`/`sizes`.
+- Додано FULLTEXT-пошук із fallback на `LIKE`.
 
-Пріоритетні пункти перенесені в `POST_MVP_ROADMAP.md` і `BUGS.md`:
+## Залишкові ризики
 
-1. Зробити SQL-міграції portable без жорсткого `USE my_photo_gallery`.
-2. Остаточно закрити legacy originals у `public/uploads/originals`.
-3. Покращити поведінку `tools/recover_trash.php` після успішного restore.
-4. Додати перевірку актуальності admin-сесії в БД.
-5. Додати HSTS тільки для production HTTPS.
-6. Посилити перевірки GD/memory edge cases.
-
-## Перевірки, які варто робити після змін
-
-```bash
-php -l path/to/file.php
-php tools/self_check.php
-php tools/cleanup_orphans.php
-```
-
-Також вручну перевірити:
-
-- login/logout;
-- upload валідного JPEG;
-- відмову для не-JPEG;
-- EXIF і orientation;
-- пошук/фільтри/сортування;
-- створення/редагування/видалення альбому;
-- редагування і видалення фото;
-- recovery сценарій після перерваного видалення, якщо змінювався delete/recover код.
-
-## Статус документації
-
-Документація оновлена так, щоб реалізовані можливості були в `IMPLEMENTED_FEATURES.md`, а майбутні задачі — в `POST_MVP_ROADMAP.md`. Це прибирає стару проблему, коли roadmap одночасно містив уже реалізований пошук/альбоми і майбутні задачі.
+Див. `BUGS.md` і `POST_MVP_ROADMAP.md`.

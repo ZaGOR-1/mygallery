@@ -243,6 +243,21 @@ function app_log_exception(Throwable $exception, string $context): void
     app_log($context . ': ' . $exception::class . ' - ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
 }
 
+function unlink_file_with_log(?string $path, string $context): bool
+{
+    if (!is_string($path) || $path === '' || !is_file($path)) {
+        return true;
+    }
+
+    if (@unlink($path)) {
+        return true;
+    }
+
+    app_log($context . ': failed to delete ' . basename($path));
+
+    return false;
+}
+
 function is_https_request(): bool
 {
     return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
@@ -311,6 +326,89 @@ function send_security_headers(): void
     header('Referrer-Policy: same-origin');
     header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
     header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+
+    if (is_production() && is_https_request()) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
+}
+
+function admin_exists(int $adminId): bool
+{
+    $stmt = db()->prepare('SELECT COUNT(*) FROM admins WHERE id = :id');
+    $stmt->execute(['id' => $adminId]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function fulltext_index_exists(string $indexName): bool
+{
+    static $cache = [];
+
+    if (array_key_exists($indexName, $cache)) {
+        return $cache[$indexName];
+    }
+
+    try {
+        $stmt = db()->prepare(
+            "SELECT COUNT(*)
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'photos'
+              AND INDEX_NAME = :index_name
+              AND INDEX_TYPE = 'FULLTEXT'"
+        );
+        $stmt->execute(['index_name' => $indexName]);
+        $cache[$indexName] = (int) $stmt->fetchColumn() > 0;
+    } catch (Throwable $exception) {
+        app_log_exception($exception, 'Fulltext index check failed');
+        $cache[$indexName] = false;
+    }
+
+    return $cache[$indexName];
+}
+
+function fulltext_boolean_query(string $search): string
+{
+    preg_match_all('/[\p{L}\p{N}_-]+/u', $search, $matches);
+    $terms = array_slice(array_filter(
+        $matches[0] ?? [],
+        static fn (string $term): bool => mb_strlen($term) >= 2
+    ), 0, 8);
+
+    if (empty($terms)) {
+        return '';
+    }
+
+    return implode(' ', array_map(static fn (string $term): string => '+' . $term . '*', $terms));
+}
+
+function photo_search_condition(string $search, bool $includeOriginalName, array &$params): string
+{
+    if ($search === '') {
+        return '';
+    }
+
+    $fulltextIndex = $includeOriginalName ? 'idx_photos_admin_search_fulltext' : 'idx_photos_public_search_fulltext';
+    $fulltextQuery = fulltext_boolean_query($search);
+
+    if ($fulltextQuery !== '' && fulltext_index_exists($fulltextIndex)) {
+        $params['search_fulltext'] = $fulltextQuery;
+
+        return $includeOriginalName
+            ? 'MATCH(photos.title, photos.description, photos.original_name) AGAINST (:search_fulltext IN BOOLEAN MODE)'
+            : 'MATCH(photos.title, photos.description) AGAINST (:search_fulltext IN BOOLEAN MODE)';
+    }
+
+    $params['search_title'] = '%' . $search . '%';
+    $params['search_description'] = '%' . $search . '%';
+
+    if ($includeOriginalName) {
+        $params['search_original'] = '%' . $search . '%';
+
+        return '(photos.title LIKE :search_title OR photos.description LIKE :search_description OR photos.original_name LIKE :search_original)';
+    }
+
+    return '(photos.title LIKE :search_title OR photos.description LIKE :search_description)';
 }
 
 function send_admin_cache_headers(): void
@@ -569,6 +667,38 @@ function valid_photo_filename(string $filename): bool
     return preg_match('/\A[a-f0-9]{32}\.jpg\z/', $filename) === 1;
 }
 
+function valid_trash_photo_filename(string $filename): bool
+{
+    return preg_match('/\A[a-f0-9]{32}-[0-9]+-[a-f0-9]{32}\.jpg\z/', $filename) === 1;
+}
+
+function same_filesystem_path(string $left, string $right): bool
+{
+    $left = rtrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $left), DIRECTORY_SEPARATOR);
+    $right = rtrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $right), DIRECTORY_SEPARATOR);
+
+    if (PHP_OS_FAMILY === 'Windows') {
+        return strtolower($left) === strtolower($right);
+    }
+
+    return $left === $right;
+}
+
+function safe_upload_file_path(string $folder, string $filename): ?string
+{
+    if (!valid_photo_filename($filename)) {
+        return null;
+    }
+
+    $basePath = realpath(uploads_path($folder));
+
+    if ($basePath === false) {
+        return null;
+    }
+
+    return $basePath . DIRECTORY_SEPARATOR . $filename;
+}
+
 function safe_existing_upload_file_path(string $folder, string $filename): ?string
 {
     if (!valid_photo_filename($filename)) {
@@ -592,6 +722,21 @@ function safe_existing_upload_file_path(string $folder, string $filename): ?stri
     return str_starts_with($filePath, $basePath) ? $filePath : null;
 }
 
+function safe_storage_file_path(string $folder, string $filename): ?string
+{
+    if (!valid_photo_filename($filename)) {
+        return null;
+    }
+
+    $basePath = realpath(storage_path($folder));
+
+    if ($basePath === false) {
+        return null;
+    }
+
+    return $basePath . DIRECTORY_SEPARATOR . $filename;
+}
+
 function safe_existing_storage_file_path(string $folder, string $filename): ?string
 {
     if (!valid_photo_filename($filename)) {
@@ -613,6 +758,28 @@ function safe_existing_storage_file_path(string $folder, string $filename): ?str
     $basePath = rtrim($basePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
 
     return str_starts_with($filePath, $basePath) ? $filePath : null;
+}
+
+function safe_trash_file_path(string $filename): ?string
+{
+    if (!valid_trash_photo_filename($filename)) {
+        return null;
+    }
+
+    $basePath = realpath(trash_path());
+
+    if ($basePath === false) {
+        return null;
+    }
+
+    return $basePath . DIRECTORY_SEPARATOR . $filename;
+}
+
+function safe_existing_trash_file_path(string $filename): ?string
+{
+    $path = safe_trash_file_path($filename);
+
+    return $path !== null && is_file($path) ? $path : null;
 }
 
 function ensure_upload_folders(): array
@@ -1058,6 +1225,38 @@ function photo_display_url(array $photo): string
     return uploads_url('thumbnails', (string) $photo['thumbnail_filename']);
 }
 
+function photo_responsive_srcset(array $photo): string
+{
+    $items = [];
+    $thumbnail = (string) ($photo['thumbnail_filename'] ?? '');
+    $filename = (string) ($photo['filename'] ?? '');
+
+    if ($thumbnail !== '' && safe_existing_upload_file_path('thumbnails', $thumbnail) !== null) {
+        $items[] = uploads_url('thumbnails', $thumbnail) . ' 600w';
+    }
+
+    if ($filename !== '' && safe_existing_upload_file_path('large', $filename) !== null) {
+        $largeWidth = (int) ($photo['width'] ?? 0);
+        $largeWidth = $largeWidth > 0 ? min($largeWidth, (int) app_config()['LARGE_MAX_WIDTH']) : (int) app_config()['LARGE_MAX_WIDTH'];
+
+        if ($largeWidth > 600) {
+            $items[] = uploads_url('large', $filename) . ' ' . $largeWidth . 'w';
+        }
+    }
+
+    return implode(', ', $items);
+}
+
+function photo_card_sizes(): string
+{
+    return '(max-width: 700px) 100vw, (max-width: 1100px) 50vw, 25vw';
+}
+
+function photo_view_sizes(): string
+{
+    return '(max-width: 900px) 100vw, 1200px';
+}
+
 function photo_file_paths(array $photo): array
 {
     $paths = [];
@@ -1083,6 +1282,137 @@ function photo_file_paths(array $photo): array
     }
 
     return $paths;
+}
+
+function photo_file_reference_from_path(string $path): ?array
+{
+    $filename = basename($path);
+
+    if (!valid_photo_filename($filename)) {
+        return null;
+    }
+
+    $realPath = realpath($path);
+
+    if ($realPath === false) {
+        return null;
+    }
+
+    $locations = [
+        ['area' => 'storage', 'folder' => 'originals', 'base' => originals_path()],
+        ['area' => 'public', 'folder' => 'originals', 'base' => uploads_path('originals')],
+        ['area' => 'public', 'folder' => 'large', 'base' => uploads_path('large')],
+        ['area' => 'public', 'folder' => 'thumbnails', 'base' => uploads_path('thumbnails')],
+    ];
+
+    foreach ($locations as $location) {
+        $basePath = realpath($location['base']);
+
+        if ($basePath === false) {
+            continue;
+        }
+
+        $expected = $basePath . DIRECTORY_SEPARATOR . $filename;
+
+        if (same_filesystem_path($realPath, $expected)) {
+            return [
+                'area' => $location['area'],
+                'folder' => $location['folder'],
+                'filename' => $filename,
+            ];
+        }
+    }
+
+    return null;
+}
+
+function expected_photo_file_path(string $area, string $folder, string $filename): ?string
+{
+    if ($area === 'storage' && $folder === 'originals') {
+        return safe_storage_file_path($folder, $filename);
+    }
+
+    if ($area === 'public' && in_array($folder, ['originals', 'large', 'thumbnails'], true)) {
+        return safe_upload_file_path($folder, $filename);
+    }
+
+    return null;
+}
+
+function resolve_legacy_trash_entry(array $file): ?array
+{
+    $from = (string) ($file['from'] ?? '');
+    $trash = (string) ($file['trash'] ?? '');
+    $filename = basename($from);
+    $trashFilename = basename($trash);
+
+    if (!valid_photo_filename($filename) || !valid_trash_photo_filename($trashFilename)) {
+        return null;
+    }
+
+    if (!str_ends_with($trashFilename, '-' . $filename)) {
+        return null;
+    }
+
+    $trashDir = realpath(dirname($trash));
+    $expectedTrashDir = realpath(trash_path());
+
+    if ($trashDir === false || $expectedTrashDir === false || !same_filesystem_path($trashDir, $expectedTrashDir)) {
+        return null;
+    }
+
+    $fromDir = realpath(dirname($from));
+
+    if ($fromDir === false) {
+        return null;
+    }
+
+    foreach ([
+        ['area' => 'storage', 'folder' => 'originals', 'base' => originals_path()],
+        ['area' => 'public', 'folder' => 'originals', 'base' => uploads_path('originals')],
+        ['area' => 'public', 'folder' => 'large', 'base' => uploads_path('large')],
+        ['area' => 'public', 'folder' => 'thumbnails', 'base' => uploads_path('thumbnails')],
+    ] as $location) {
+        $basePath = realpath($location['base']);
+
+        if ($basePath !== false && same_filesystem_path($fromDir, $basePath)) {
+            return [
+                'from' => expected_photo_file_path($location['area'], $location['folder'], $filename),
+                'trash' => safe_trash_file_path($trashFilename),
+                'filename' => $filename,
+                'trash_filename' => $trashFilename,
+            ];
+        }
+    }
+
+    return null;
+}
+
+function resolve_trash_manifest_entry(array $file): ?array
+{
+    $area = (string) ($file['area'] ?? '');
+    $folder = (string) ($file['folder'] ?? '');
+    $filename = (string) ($file['filename'] ?? '');
+    $trashFilename = (string) ($file['trash_filename'] ?? '');
+
+    if ($area !== '' || $folder !== '' || $filename !== '' || $trashFilename !== '') {
+        if (!valid_photo_filename($filename) || !valid_trash_photo_filename($trashFilename)) {
+            return null;
+        }
+
+        if (!str_ends_with($trashFilename, '-' . $filename)) {
+            return null;
+        }
+
+        return [
+            'from' => expected_photo_file_path($area, $folder, $filename),
+            'trash' => safe_trash_file_path($trashFilename),
+            'filename' => $filename,
+            'trash_filename' => $trashFilename,
+        ];
+    }
+
+    return resolve_legacy_trash_entry($file);
 }
 
 function photo_filename_errors(array $photo): array
@@ -1142,10 +1472,20 @@ function move_photo_files_to_trash(array $photo): array
     $planned = [];
 
     foreach (photo_file_paths($photo) as $file) {
+        $reference = photo_file_reference_from_path($file);
+
+        if ($reference === null) {
+            throw new RuntimeException('Некоректний шлях файла для видалення: ' . basename($file));
+        }
+
         $trashName = $operationId . '-' . count($planned) . '-' . basename($file);
         $planned[] = [
             'from' => $file,
             'trash' => trash_path($trashName),
+            'area' => $reference['area'],
+            'folder' => $reference['folder'],
+            'filename' => $reference['filename'],
+            'trash_filename' => $trashName,
         ];
     }
 
@@ -1154,7 +1494,15 @@ function move_photo_files_to_trash(array $photo): array
         'operation_id' => $operationId,
         'photo_id' => isset($photo['id']) ? (int) $photo['id'] : null,
         'created_at' => date('c'),
-        'files' => $planned,
+        'files' => array_map(
+            static fn (array $file): array => [
+                'area' => $file['area'],
+                'folder' => $file['folder'],
+                'filename' => $file['filename'],
+                'trash_filename' => $file['trash_filename'],
+            ],
+            $planned
+        ),
     ];
 
     if (!@file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX)) {
@@ -1179,7 +1527,12 @@ function restore_moved_photo_files(array $trashOperation): array
     $movedFiles = $trashOperation['files'] ?? $trashOperation;
 
     for ($i = count($movedFiles) - 1; $i >= 0; $i--) {
-        $file = $movedFiles[$i];
+        $file = resolve_trash_manifest_entry((array) $movedFiles[$i]);
+
+        if ($file === null || $file['from'] === null || $file['trash'] === null) {
+            $errors[] = 'Некоректний запис у журналі кошика.';
+            continue;
+        }
 
         if (is_file($file['trash']) && !rename($file['trash'], $file['from'])) {
             $errors[] = 'Не вдалося повернути файл ' . basename((string) $file['from']) . '.';
@@ -1199,6 +1552,13 @@ function remove_trashed_photo_files(array $trashOperation): array
     $movedFiles = $trashOperation['files'] ?? $trashOperation;
 
     foreach ($movedFiles as $file) {
+        $file = resolve_trash_manifest_entry((array) $file);
+
+        if ($file === null || $file['trash'] === null) {
+            $errors[] = 'Некоректний запис у журналі кошика.';
+            continue;
+        }
+
         if (is_file($file['trash']) && !@unlink($file['trash'])) {
             $errors[] = 'Не вдалося остаточно видалити файл ' . basename((string) $file['trash']) . '.';
         }
