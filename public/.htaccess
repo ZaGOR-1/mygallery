@@ -1,6 +1,7 @@
 # PHP upload limits are configured in php.ini, Apache VirtualHost, or PHP-FPM pool settings.
 # Keeping php_value out of this file makes the project portable to PHP-FPM/CGI hosting.
 ServerSignature Off
+ErrorDocument 404 /404.php
 
 <IfModule mod_headers.c>
     Header always unset X-Powered-By

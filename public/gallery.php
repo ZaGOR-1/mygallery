@@ -19,9 +19,8 @@ $albumId = get_album_id_from_request('album_id');
 $dateFrom = get_query_string('date_from', 10);
 $dateTo = get_query_string('date_to', 10);
 $sort = get_query_string('sort', 30);
-$datePattern = '/^\d{4}-\d{2}-\d{2}$/';
-$dateFrom = preg_match($datePattern, $dateFrom) ? $dateFrom : '';
-$dateTo = preg_match($datePattern, $dateTo) ? $dateTo : '';
+$dateFrom = normalize_date_query($dateFrom);
+$dateTo = normalize_date_query($dateTo);
 
 if ($dateFrom !== '' && $dateTo !== '' && $dateFrom > $dateTo) {
     [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
@@ -115,8 +114,8 @@ try {
     $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
     $stmt->execute();
     $photos = $stmt->fetchAll();
-} catch (Throwable) {
-    set_flash('error', 'Не вдалося завантажити галерею. Перевірте підключення до бази даних.');
+} catch (Throwable $exception) {
+    app_http_error('Не вдалося завантажити галерею. Перевірте підключення до бази даних.', 500, $exception);
 }
 
 require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php';
@@ -196,9 +195,13 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
                 <a href="<?= h(url_with_query('gallery.php', array_merge($filterParams, ['page' => $page - 1]))) ?>">Назад</a>
             <?php endif; ?>
 
-            <?php for ($i = 1; $i <= $totalPages; $i++): ?>
-                <a class="<?= $i === $page ? 'active' : '' ?>" href="<?= h(url_with_query('gallery.php', array_merge($filterParams, ['page' => $i]))) ?>"><?= h((string) $i) ?></a>
-            <?php endfor; ?>
+            <?php foreach (pagination_window($page, $totalPages) as $i): ?>
+                <?php if ($i === null): ?>
+                    <span class="pagination-gap">…</span>
+                <?php else: ?>
+                    <a class="<?= $i === $page ? 'active' : '' ?>" href="<?= h(url_with_query('gallery.php', array_merge($filterParams, ['page' => $i]))) ?>"><?= h((string) $i) ?></a>
+                <?php endif; ?>
+            <?php endforeach; ?>
 
             <?php if ($page < $totalPages): ?>
                 <a href="<?= h(url_with_query('gallery.php', array_merge($filterParams, ['page' => $page + 1]))) ?>">Вперед</a>

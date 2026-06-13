@@ -245,6 +245,14 @@ button.button {
     color: var(--muted);
 }
 
+
+.pagination-gap {
+    min-width: 42px;
+    padding: 8px 12px;
+    text-align: center;
+    color: var(--muted);
+}
+
 .pagination a.active,
 .pagination a:hover {
     border-color: var(--accent);

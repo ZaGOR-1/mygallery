@@ -21,9 +21,8 @@ try {
     );
     $stmt->execute(['id' => $id]);
     $photo = $stmt->fetch();
-} catch (Throwable) {
-    $photo = false;
-    set_flash('error', 'Не вдалося завантажити фотографію.');
+} catch (Throwable $exception) {
+    app_http_error('Не вдалося завантажити фотографію.', 500, $exception);
 }
 
 if (!$photo) {
@@ -58,7 +57,8 @@ try {
         'id' => $id,
     ]);
     $nextPhoto = $nextStmt->fetch();
-} catch (Throwable) {
+} catch (Throwable $exception) {
+    app_log_exception($exception, 'Photo navigation failed');
     $previousPhoto = false;
     $nextPhoto = false;
 }

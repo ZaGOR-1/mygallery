@@ -9,9 +9,8 @@ $pageTitle = app_name();
 try {
     $stmt = db()->query('SELECT id, title, thumbnail_filename, camera_model, taken_at FROM photos ORDER BY created_at DESC, id DESC LIMIT 6');
     $latestPhotos = $stmt->fetchAll();
-} catch (Throwable) {
-    $latestPhotos = [];
-    set_flash('error', 'Не вдалося підключитися до бази даних. Перевірте налаштування.');
+} catch (Throwable $exception) {
+    app_http_error('Не вдалося завантажити головну сторінку. Перевірте підключення до бази даних.', 500, $exception);
 }
 
 require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php';

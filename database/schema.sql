@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS `photos` (
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_photos_filename_unique` (`filename`),
+  UNIQUE KEY `idx_photos_thumbnail_filename_unique` (`thumbnail_filename`),
   KEY `idx_photos_album_id` (`album_id`),
   KEY `idx_photos_taken_at` (`taken_at`),
   KEY `idx_photos_created_at` (`created_at`),
@@ -60,5 +62,7 @@ CREATE TABLE IF NOT EXISTS `login_attempts` (
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_login_attempts_username_ip` (`username`, `ip_address`),
-  KEY `idx_login_attempts_locked_until` (`locked_until`)
+  KEY `idx_login_attempts_ip_address` (`ip_address`),
+  KEY `idx_login_attempts_locked_until` (`locked_until`),
+  KEY `idx_login_attempts_last_attempt_at` (`last_attempt_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

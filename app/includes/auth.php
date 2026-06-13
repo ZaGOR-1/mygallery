@@ -12,7 +12,21 @@ function is_admin_logged_in(): bool
 
     start_session();
 
-    return isset($_SESSION['admin_id']);
+    if (!isset($_SESSION['admin_id'])) {
+        return false;
+    }
+
+    $lastActivity = (int) ($_SESSION['admin_last_activity'] ?? 0);
+    $idleLimit = 3600;
+
+    if ($lastActivity > 0 && (time() - $lastActivity) > $idleLimit) {
+        logout_admin();
+        return false;
+    }
+
+    $_SESSION['admin_last_activity'] = time();
+
+    return true;
 }
 
 function require_admin(): void
@@ -31,6 +45,9 @@ function login_admin(array $admin): void
     session_regenerate_id(true);
     $_SESSION['admin_id'] = (int) $admin['id'];
     $_SESSION['admin_username'] = (string) $admin['username'];
+    $_SESSION['admin_login_at'] = time();
+    $_SESSION['admin_last_activity'] = time();
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
 function logout_admin(): void

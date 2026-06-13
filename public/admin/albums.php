@@ -48,6 +48,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'id' => $albumId,
                 ]);
 
+                if ($stmt->rowCount() === 0 && !album_exists((int) $albumId)) {
+                    throw new InvalidArgumentException('Альбом не знайдено.');
+                }
+
                 set_flash('success', 'Альбом оновлено.');
                 redirect('admin/albums.php');
             }
@@ -57,15 +61,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new InvalidArgumentException('Некоректний альбом.');
                 }
 
-                db()->beginTransaction();
+                $pdo = db();
+                $pdo->beginTransaction();
 
-                $stmt = db()->prepare('UPDATE photos SET album_id = NULL WHERE album_id = :id');
+                $checkStmt = $pdo->prepare('SELECT id FROM albums WHERE id = :id FOR UPDATE');
+                $checkStmt->execute(['id' => $albumId]);
+
+                if (!$checkStmt->fetch()) {
+                    throw new InvalidArgumentException('Альбом не знайдено.');
+                }
+
+                $stmt = $pdo->prepare('UPDATE photos SET album_id = NULL WHERE album_id = :id');
                 $stmt->execute(['id' => $albumId]);
 
-                $stmt = db()->prepare('DELETE FROM albums WHERE id = :id');
+                $stmt = $pdo->prepare('DELETE FROM albums WHERE id = :id');
                 $stmt->execute(['id' => $albumId]);
 
-                db()->commit();
+                $pdo->commit();
 
                 set_flash('success', 'Альбом видалено. Фотографії залишилися без альбому.');
                 redirect('admin/albums.php');
@@ -73,6 +85,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $errors[] = 'Невідома дія.';
         } catch (InvalidArgumentException $exception) {
+            if (db()->inTransaction()) {
+                db()->rollBack();
+            }
+
             $errors[] = $exception->getMessage();
         } catch (Throwable $exception) {
             if (db()->inTransaction()) {

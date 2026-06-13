@@ -18,13 +18,22 @@ $maxUploadSize = $serverUploadLimit > 0 ? min($appUploadLimit, $serverUploadLimi
 
 try {
     $albumOptions = get_album_options();
-} catch (Throwable) {
+} catch (Throwable $exception) {
+    app_log_exception($exception, 'Album options failed');
     $errors[] = 'Не вдалося завантажити список альбомів. Перевірте схему бази даних.';
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $selectedAlbumId = get_album_id_from_post('album_id');
+    try {
+        $selectedAlbumId = get_album_id_from_post('album_id');
+    } catch (InvalidArgumentException $exception) {
+        $selectedAlbumId = null;
+        $errors[] = $exception->getMessage();
+    }
+
     $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
+    $titleInput = trim((string) ($_POST['title'] ?? ''));
+    $descriptionInput = clean_description((string) ($_POST['description'] ?? ''));
     $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
     $requestTooLarge = $serverUploadLimit > 0 && $contentLength > $serverUploadLimit;
 
@@ -69,15 +78,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    $albumId = null;
-    if (empty($errors)) {
-        try {
-            $albumId = resolve_album_id_from_post();
-        } catch (InvalidArgumentException $exception) {
-            $errors[] = $exception->getMessage();
-        }
-    }
-
     if (empty($errors)) {
         $originalPath = null;
         $largePath = null;
@@ -98,35 +98,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $savedFileSize = is_file($originalPath) ? filesize($originalPath) : false;
             $exifJson = json_encode($exif['raw'], JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-            $title = trim((string) ($_POST['title'] ?? ''));
+            $title = $titleInput;
             if ($title === '') {
                 $title = pathinfo((string) $file['name'], PATHINFO_FILENAME);
             }
 
-            $stmt = db()->prepare(
-                'INSERT INTO photos
-                (album_id, filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json)
-                VALUES
-                (:album_id, :filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json)'
-            );
+            $pdo = db();
+            $pdo->beginTransaction();
 
-            $stmt->execute([
-                'album_id' => $albumId,
-                'filename' => $filename,
-                'thumbnail_filename' => $thumbnailFilename,
-                'original_name' => safe_original_name((string) $file['name']),
-                'title' => text_limit($title, 255),
-                'description' => trim((string) ($_POST['description'] ?? '')) ?: null,
-                'mime_type' => 'image/jpeg',
-                'file_size' => $savedFileSize === false ? (int) $file['size'] : (int) $savedFileSize,
-                'width' => $width,
-                'height' => $height,
-                'camera_make' => $exif['camera_make'],
-                'camera_model' => $exif['camera_model'],
-                'lens_model' => $exif['lens_model'],
-                'taken_at' => $exif['taken_at'],
-                'exif_json' => $exifJson === false ? null : $exifJson,
-            ]);
+            try {
+                $albumId = resolve_album_id_from_post();
+                $stmt = $pdo->prepare(
+                    'INSERT INTO photos
+                    (album_id, filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json)
+                    VALUES
+                    (:album_id, :filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json)'
+                );
+
+                $stmt->execute([
+                    'album_id' => $albumId,
+                    'filename' => $filename,
+                    'thumbnail_filename' => $thumbnailFilename,
+                    'original_name' => safe_original_name((string) $file['name']),
+                    'title' => text_limit($title, 255),
+                    'description' => $descriptionInput,
+                    'mime_type' => 'image/jpeg',
+                    'file_size' => $savedFileSize === false ? (int) $file['size'] : (int) $savedFileSize,
+                    'width' => $width,
+                    'height' => $height,
+                    'camera_make' => $exif['camera_make'],
+                    'camera_model' => $exif['camera_model'],
+                    'lens_model' => $exif['lens_model'],
+                    'taken_at' => $exif['taken_at'],
+                    'exif_json' => $exifJson === false ? null : $exifJson,
+                ]);
+
+                $pdo->commit();
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
+                throw $exception;
+            }
 
             set_flash('success', 'Фотографію завантажено.');
             redirect('admin/index.php');
@@ -163,11 +177,11 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <?= csrf_field() ?>
         <label>
             Назва
-            <input type="text" name="title" maxlength="255">
+            <input type="text" name="title" value="<?= h($titleInput ?? '') ?>" maxlength="255">
         </label>
         <label>
             Опис
-            <textarea name="description" rows="5"></textarea>
+            <textarea name="description" rows="5" maxlength="<?= h((string) description_max_length()) ?>"><?= h((string) ($descriptionInput ?? '')) ?></textarea>
         </label>
         <label>
             Альбом

@@ -57,7 +57,8 @@ function ask_secret(string $label): string
 
 try {
     $adminExists = (int) db()->query('SELECT COUNT(*) FROM admins')->fetchColumn() > 0;
-} catch (Throwable) {
+} catch (Throwable $exception) {
+    app_log_exception($exception, 'Setup DB check failed');
     fwrite(STDERR, "Не вдалося підключитися до бази. Імпортуйте database/schema.sql і перевірте config/database.php.\n");
     exit(1);
 }

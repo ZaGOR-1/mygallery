@@ -6,6 +6,8 @@ require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPAR
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'auth.php';
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'csrf.php';
 
+send_admin_cache_headers();
+
 if (is_admin_logged_in()) {
     redirect('admin/index.php');
 }
@@ -15,9 +17,22 @@ $errors = [];
 
 function login_client_ip(): string
 {
-    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $remoteAddr = is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : 'unknown';
+    $trustedProxies = app_config()['TRUSTED_PROXIES'] ?? [];
 
-    return is_string($ip) && $ip !== '' ? $ip : 'unknown';
+    if (is_array($trustedProxies) && in_array($remoteAddr, $trustedProxies, true)) {
+        $forwardedFor = (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '');
+        $candidates = array_map('trim', explode(',', $forwardedFor));
+
+        foreach ($candidates as $candidate) {
+            if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+                return $candidate;
+            }
+        }
+    }
+
+    return $remoteAddr;
 }
 
 function normalize_login_username(string $username): string
@@ -25,11 +40,26 @@ function normalize_login_username(string $username): string
     $username = trim($username);
     $username = text_limit($username, 100);
 
-    return function_exists('mb_strtolower') ? mb_strtolower($username) : strtolower($username);
+    return mb_strtolower($username, 'UTF-8');
+}
+
+function login_buckets(string $username, string $ip): array
+{
+    $username = normalize_login_username($username);
+
+    return [
+        ['username' => $username, 'ip_address' => $ip, 'limit' => (int) app_config()['LOGIN_MAX_ATTEMPTS']],
+        ['username' => $username, 'ip_address' => '*', 'limit' => (int) app_config()['LOGIN_ACCOUNT_MAX_ATTEMPTS']],
+        ['username' => '*', 'ip_address' => $ip, 'limit' => (int) app_config()['LOGIN_IP_MAX_ATTEMPTS']],
+    ];
 }
 
 function cleanup_old_login_attempts(): void
 {
+    if (random_int(1, 20) !== 1) {
+        return;
+    }
+
     $stmt = db()->prepare(
         'DELETE FROM login_attempts
         WHERE last_attempt_at < DATE_SUB(NOW(), INTERVAL 30 DAY)
@@ -40,84 +70,91 @@ function cleanup_old_login_attempts(): void
 
 function login_lock_seconds_for(string $username, string $ip): int
 {
-    $stmt = db()->prepare('SELECT locked_until FROM login_attempts WHERE username = :username AND ip_address = :ip_address LIMIT 1');
+    $maxSeconds = 0;
+
+    foreach (login_buckets($username, $ip) as $bucket) {
+        $stmt = db()->prepare('SELECT locked_until FROM login_attempts WHERE username = :username AND ip_address = :ip_address LIMIT 1');
+        $stmt->execute([
+            'username' => $bucket['username'],
+            'ip_address' => $bucket['ip_address'],
+        ]);
+
+        $attempt = $stmt->fetch();
+
+        if (!$attempt || empty($attempt['locked_until'])) {
+            continue;
+        }
+
+        $lockUntil = strtotime((string) $attempt['locked_until']);
+
+        if ($lockUntil === false || $lockUntil <= time()) {
+            continue;
+        }
+
+        $maxSeconds = max($maxSeconds, $lockUntil - time());
+    }
+
+    return $maxSeconds;
+}
+
+function upsert_failed_login_bucket(PDO $pdo, array $bucket, int $lockSeconds): void
+{
+    $stmt = $pdo->prepare('SELECT attempts, locked_until FROM login_attempts WHERE username = :username AND ip_address = :ip_address LIMIT 1 FOR UPDATE');
     $stmt->execute([
-        'username' => normalize_login_username($username),
-        'ip_address' => $ip,
+        'username' => $bucket['username'],
+        'ip_address' => $bucket['ip_address'],
     ]);
 
     $attempt = $stmt->fetch();
+    $lockedUntil = null;
+    $attempts = 1;
 
-    if (!$attempt || empty($attempt['locked_until'])) {
-        return 0;
+    if ($attempt) {
+        $currentLock = strtotime((string) ($attempt['locked_until'] ?? ''));
+
+        if ($currentLock !== false && $currentLock > time()) {
+            return;
+        }
+
+        $attempts = (int) ($attempt['attempts'] ?? 0) + 1;
     }
 
-    $lockUntil = strtotime((string) $attempt['locked_until']);
-
-    if ($lockUntil === false || $lockUntil <= time()) {
-        clear_failed_logins($username, $ip);
-        return 0;
+    if ($attempts >= (int) $bucket['limit']) {
+        $lockedUntil = date('Y-m-d H:i:s', time() + $lockSeconds);
+        $attempts = 0;
     }
 
-    return max(0, $lockUntil - time());
+    if ($attempt) {
+        $stmt = $pdo->prepare(
+            'UPDATE login_attempts
+            SET attempts = :attempts, locked_until = :locked_until
+            WHERE username = :username AND ip_address = :ip_address'
+        );
+    } else {
+        $stmt = $pdo->prepare(
+            'INSERT INTO login_attempts (username, ip_address, attempts, locked_until)
+            VALUES (:username, :ip_address, :attempts, :locked_until)'
+        );
+    }
+
+    $stmt->execute([
+        'username' => $bucket['username'],
+        'ip_address' => $bucket['ip_address'],
+        'attempts' => $attempts,
+        'locked_until' => $lockedUntil,
+    ]);
 }
 
 function register_failed_login(string $username, string $ip): void
 {
-    $config = app_config();
-    $maxAttempts = (int) $config['LOGIN_MAX_ATTEMPTS'];
-    $lockSeconds = (int) $config['LOGIN_LOCK_SECONDS'];
-    $username = normalize_login_username($username);
     $pdo = db();
-
     $pdo->beginTransaction();
 
     try {
-        $stmt = $pdo->prepare('SELECT attempts, locked_until FROM login_attempts WHERE username = :username AND ip_address = :ip_address LIMIT 1 FOR UPDATE');
-        $stmt->execute([
-            'username' => $username,
-            'ip_address' => $ip,
-        ]);
-
-        $attempt = $stmt->fetch();
-        $lockedUntil = null;
-        $attempts = 1;
-
-        if ($attempt) {
-            $currentLock = strtotime((string) ($attempt['locked_until'] ?? ''));
-
-            if ($currentLock !== false && $currentLock > time()) {
-                $pdo->commit();
-                return;
-            }
-
-            $attempts = (int) ($attempt['attempts'] ?? 0) + 1;
+        foreach (login_buckets($username, $ip) as $bucket) {
+            upsert_failed_login_bucket($pdo, $bucket, (int) app_config()['LOGIN_LOCK_SECONDS']);
         }
 
-        if ($attempts >= $maxAttempts) {
-            $lockedUntil = date('Y-m-d H:i:s', time() + $lockSeconds);
-            $attempts = 0;
-        }
-
-        if ($attempt) {
-            $stmt = $pdo->prepare(
-                'UPDATE login_attempts
-                SET attempts = :attempts, locked_until = :locked_until
-                WHERE username = :username AND ip_address = :ip_address'
-            );
-        } else {
-            $stmt = $pdo->prepare(
-                'INSERT INTO login_attempts (username, ip_address, attempts, locked_until)
-                VALUES (:username, :ip_address, :attempts, :locked_until)'
-            );
-        }
-
-        $stmt->execute([
-            'username' => $username,
-            'ip_address' => $ip,
-            'attempts' => $attempts,
-            'locked_until' => $lockedUntil,
-        ]);
         $pdo->commit();
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {
@@ -130,11 +167,18 @@ function register_failed_login(string $username, string $ip): void
 
 function clear_failed_logins(string $username, string $ip): void
 {
-    $stmt = db()->prepare('DELETE FROM login_attempts WHERE username = :username AND ip_address = :ip_address');
+    $pdo = db();
+    $stmt = $pdo->prepare('DELETE FROM login_attempts WHERE (username = :username AND ip_address IN (:ip_exact, "*")) OR (username = "*" AND ip_address = :ip_global)');
     $stmt->execute([
         'username' => normalize_login_username($username),
-        'ip_address' => $ip,
+        'ip_exact' => $ip,
+        'ip_global' => $ip,
     ]);
+}
+
+function dummy_password_hash(): string
+{
+    return '$2y$12$XnCWVWzrthr8eekn.vsf1eHkQ66z2igpVGGNdpDOkaToEVcbEajaK';
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -168,10 +212,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = db()->prepare('SELECT * FROM admins WHERE username = :username LIMIT 1');
             $stmt->execute(['username' => $username]);
             $admin = $stmt->fetch();
+            $hash = $admin ? (string) $admin['password_hash'] : dummy_password_hash();
+            $passwordOk = password_verify($password, $hash);
 
-            if ($admin && password_verify($password, (string) $admin['password_hash'])) {
+            if ($admin && $passwordOk) {
                 clear_failed_logins($username, $ip);
                 login_admin($admin);
+                $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
                 redirect('admin/index.php');
             }
 
@@ -197,7 +244,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <?= csrf_field() ?>
         <label>
             Логін
-            <input type="text" name="username" required maxlength="100" autocomplete="username">
+            <input type="text" name="username" value="<?= h($username ?? '') ?>" required maxlength="100" autocomplete="username">
         </label>
         <label>
             Пароль

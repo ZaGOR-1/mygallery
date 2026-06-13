@@ -28,7 +28,8 @@ try {
     $stmt = db()->prepare('SELECT * FROM photos WHERE id = :id');
     $stmt->execute(['id' => $id]);
     $photo = $stmt->fetch();
-} catch (Throwable) {
+} catch (Throwable $exception) {
+    app_log_exception($exception, 'Delete fetch failed');
     set_flash('error', 'Не вдалося знайти фотографію для видалення.');
     redirect('admin/index.php');
 }

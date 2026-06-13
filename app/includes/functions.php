@@ -37,6 +37,85 @@ function app_config(): array
     return $config;
 }
 
+function app_env(): string
+{
+    return (string) (app_config()['APP_ENV'] ?? 'local');
+}
+
+function is_production(): bool
+{
+    return app_env() === 'production';
+}
+
+function app_http_error(string $message, int $statusCode = 500, ?Throwable $exception = null): never
+{
+    if ($exception !== null) {
+        app_log_exception($exception, 'HTTP ' . $statusCode);
+    } else {
+        app_log('HTTP ' . $statusCode . ': ' . $message);
+    }
+
+    if (PHP_SAPI === 'cli') {
+        fwrite(STDERR, $message . PHP_EOL);
+        exit(1);
+    }
+
+    if (!headers_sent()) {
+        http_response_code($statusCode);
+        send_security_headers();
+        header('Content-Type: text/html; charset=UTF-8');
+    }
+
+    $safeMessage = app_debug() && $exception !== null
+        ? $message . ' ' . $exception->getMessage()
+        : $message;
+
+    echo '<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Помилка</title></head><body><h1>Помилка сервера</h1><p>' . h($safeMessage) . '</p></body></html>';
+    exit;
+}
+
+function app_url_is_https(): bool
+{
+    return str_starts_with((string) app_config()['APP_URL'], 'https://');
+}
+
+function validate_runtime_config(): void
+{
+    if (!is_production()) {
+        return;
+    }
+
+    if (app_debug()) {
+        app_http_error('Небезпечна конфігурація: APP_DEBUG має бути false у production.', 500);
+    }
+
+    if (!app_url_is_https()) {
+        app_http_error('Небезпечна конфігурація: APP_URL має починатися з https:// у production.', 500);
+    }
+}
+
+function required_php_extensions(): array
+{
+    return ['pdo', 'pdo_mysql', 'gd', 'fileinfo', 'exif', 'mbstring'];
+}
+
+function missing_php_extensions(): array
+{
+    return array_values(array_filter(
+        required_php_extensions(),
+        static fn (string $extension): bool => !extension_loaded($extension)
+    ));
+}
+
+function ensure_required_php_extensions(): void
+{
+    $missing = missing_php_extensions();
+
+    if (!empty($missing)) {
+        app_http_error('Відсутні обов’язкові PHP-розширення: ' . implode(', ', $missing) . '.', 500);
+    }
+}
+
 function db_config(): array
 {
     $path = project_root_path('config' . DIRECTORY_SEPARATOR . 'database.php');
@@ -45,7 +124,18 @@ function db_config(): array
         throw new RuntimeException('Файл config/database.php не знайдено. Скопіюйте config/database.example.php і впишіть налаштування бази даних.');
     }
 
-    return require $path;
+    $config = require $path;
+
+    if (is_production()) {
+        $user = (string) ($config['DB_USER'] ?? '');
+        $password = (string) ($config['DB_PASSWORD'] ?? '');
+
+        if ($user === 'root' || $password === '') {
+            app_http_error('Небезпечна production-конфігурація БД: використайте окремого користувача з паролем.', 500);
+        }
+    }
+
+    return $config;
 }
 
 function db(): PDO
@@ -61,11 +151,17 @@ function db(): PDO
             $config['DB_NAME']
         );
 
-        $pdo = new PDO($dsn, $config['DB_USER'], $config['DB_PASSWORD'], [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
+        try {
+            $pdo = new PDO($dsn, $config['DB_USER'], $config['DB_PASSWORD'], [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
+                PDO::ATTR_STRINGIFY_FETCHES => false,
+            ]);
+        } catch (Throwable $exception) {
+            app_log_exception($exception, 'Database connection failed');
+            throw $exception;
+        }
     }
 
     return $pdo;
@@ -121,6 +217,9 @@ function configure_runtime(): void
     ini_set('display_startup_errors', $displayErrors);
     ini_set('log_errors', '1');
     ini_set('error_log', $logDir . DIRECTORY_SEPARATOR . 'php-error.log');
+
+    validate_runtime_config();
+    ensure_required_php_extensions();
 }
 
 function app_log(string $message): void
@@ -166,20 +265,32 @@ function session_cookie_options(): array
 
 function start_session(): void
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        $sessionPath = storage_path('sessions');
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        return;
+    }
 
-        if (!is_dir($sessionPath)) {
-            @mkdir($sessionPath, 0755, true);
-        }
+    $sessionPath = storage_path('sessions');
 
-        if (is_dir($sessionPath) && is_writable($sessionPath) && !str_contains((string) session_save_path(), 'test_sessions')) {
-            session_save_path($sessionPath);
-        }
+    if (!is_dir($sessionPath) && !@mkdir($sessionPath, 0755, true)) {
+        app_http_error('Не вдалося створити папку для PHP-сесій.', 500);
+    }
 
-        ini_set('session.use_strict_mode', '1');
-        session_set_cookie_params(session_cookie_options());
-        session_start();
+    if (!is_dir($sessionPath) || !is_writable($sessionPath)) {
+        app_http_error('Папка PHP-сесій недоступна для запису.', 500);
+    }
+
+    if (!str_contains((string) session_save_path(), 'test_sessions')) {
+        session_save_path($sessionPath);
+    }
+
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_trans_sid', '0');
+    session_cache_limiter('');
+    session_set_cookie_params(session_cookie_options());
+
+    if (!@session_start() || session_status() !== PHP_SESSION_ACTIVE) {
+        app_http_error('Не вдалося запустити PHP-сесію. Перевірте права на storage/sessions.', 500);
     }
 }
 
@@ -252,6 +363,71 @@ function get_query_string(string $key, int $maxLength = 255): string
     return text_limit(trim($value), $maxLength);
 }
 
+
+function is_valid_date_string(string $date): bool
+{
+    if ($date === '') {
+        return false;
+    }
+
+    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+    $errors = DateTimeImmutable::getLastErrors();
+
+    return $parsed instanceof DateTimeImmutable
+        && $parsed->format('Y-m-d') === $date
+        && ($errors === false || (($errors['warning_count'] ?? 0) === 0 && ($errors['error_count'] ?? 0) === 0));
+}
+
+function normalize_date_query(string $date): string
+{
+    return is_valid_date_string($date) ? $date : '';
+}
+
+function clean_description(string $description): ?string
+{
+    $description = trim(preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $description) ?? '');
+
+    if ($description === '') {
+        return null;
+    }
+
+    return text_limit($description, description_max_length());
+}
+
+function description_max_length(): int
+{
+    return 10000;
+}
+
+function pagination_window(int $page, int $totalPages, int $radius = 2): array
+{
+    if ($totalPages <= 9) {
+        return range(1, max(1, $totalPages));
+    }
+
+    $pages = [1, $totalPages];
+
+    for ($i = max(2, $page - $radius); $i <= min($totalPages - 1, $page + $radius); $i++) {
+        $pages[] = $i;
+    }
+
+    $pages = array_values(array_unique($pages));
+    sort($pages);
+    $window = [];
+    $previous = null;
+
+    foreach ($pages as $item) {
+        if ($previous !== null && $item > $previous + 1) {
+            $window[] = null;
+        }
+
+        $window[] = $item;
+        $previous = $item;
+    }
+
+    return $window;
+}
+
 function url_with_query(string $path, array $params = []): string
 {
     $cleanParams = [];
@@ -287,9 +463,19 @@ function get_album_id_from_request(string $key = 'album_id'): ?int
 
 function get_album_id_from_post(string $key = 'album_id'): ?int
 {
-    $id = filter_input(INPUT_POST, $key, FILTER_VALIDATE_INT);
+    $raw = $_POST[$key] ?? null;
 
-    return $id === false || $id === null || $id < 1 ? null : $id;
+    if ($raw === null || $raw === '') {
+        return null;
+    }
+
+    $id = filter_var($raw, FILTER_VALIDATE_INT);
+
+    if ($id === false || $id < 1) {
+        throw new InvalidArgumentException('Некоректний альбом.');
+    }
+
+    return (int) $id;
 }
 
 function get_album_options(bool $withCounts = false): array
@@ -327,15 +513,10 @@ function find_or_create_album(string $name): int
         throw new InvalidArgumentException('Назва альбому не може бути порожньою.');
     }
 
-    $stmt = db()->prepare('SELECT id FROM albums WHERE name = :name');
-    $stmt->execute(['name' => $name]);
-    $existingId = $stmt->fetchColumn();
-
-    if ($existingId !== false) {
-        return (int) $existingId;
-    }
-
-    $stmt = db()->prepare('INSERT INTO albums (name) VALUES (:name)');
+    $stmt = db()->prepare(
+        'INSERT INTO albums (name) VALUES (:name)
+        ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)'
+    );
     $stmt->execute(['name' => $name]);
 
     return (int) db()->lastInsertId();
@@ -926,9 +1107,16 @@ function validate_photo_files_deletable(array $photo): array
     $errors = photo_filename_errors($photo);
 
     foreach (photo_file_paths($photo) as $file) {
-        if (is_file($file) && !is_writable($file)) {
-            $errors[] = 'Немає права видалити файл ' . basename($file) . '.';
+        $directory = dirname($file);
+
+        if (!is_dir($directory) || !is_writable($directory)) {
+            $errors[] = 'Немає права змінювати папку з файлом ' . basename($file) . '.';
         }
+    }
+
+    $trash = trash_path();
+    if (!is_dir($trash) || !is_writable($trash)) {
+        $errors[] = 'Папка storage/trash недоступна для запису.';
     }
 
     return $errors;
@@ -949,26 +1137,46 @@ function delete_photo_files(array $photo): array
 
 function move_photo_files_to_trash(array $photo): array
 {
+    $operationId = bin2hex(random_bytes(16));
     $moved = [];
+    $planned = [];
 
     foreach (photo_file_paths($photo) as $file) {
-        $trashName = bin2hex(random_bytes(8)) . '-' . basename($file);
-        $trashFile = trash_path($trashName);
-
-        if (!rename($file, $trashFile)) {
-            restore_moved_photo_files($moved);
-            throw new RuntimeException('Не вдалося перемістити файл у кошик: ' . basename($file));
-        }
-
-        $moved[] = ['from' => $file, 'trash' => $trashFile];
+        $trashName = $operationId . '-' . count($planned) . '-' . basename($file);
+        $planned[] = [
+            'from' => $file,
+            'trash' => trash_path($trashName),
+        ];
     }
 
-    return $moved;
+    $manifestPath = trash_path($operationId . '.json');
+    $manifest = [
+        'operation_id' => $operationId,
+        'photo_id' => isset($photo['id']) ? (int) $photo['id'] : null,
+        'created_at' => date('c'),
+        'files' => $planned,
+    ];
+
+    if (!@file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX)) {
+        throw new RuntimeException('Не вдалося створити журнал видалення.');
+    }
+
+    foreach ($planned as $file) {
+        if (!rename($file['from'], $file['trash'])) {
+            restore_moved_photo_files(['files' => $moved, 'manifest' => $manifestPath]);
+            throw new RuntimeException('Не вдалося перемістити файл у кошик: ' . basename((string) $file['from']));
+        }
+
+        $moved[] = $file;
+    }
+
+    return ['files' => $moved, 'manifest' => $manifestPath, 'operation_id' => $operationId];
 }
 
-function restore_moved_photo_files(array $movedFiles): array
+function restore_moved_photo_files(array $trashOperation): array
 {
     $errors = [];
+    $movedFiles = $trashOperation['files'] ?? $trashOperation;
 
     for ($i = count($movedFiles) - 1; $i >= 0; $i--) {
         $file = $movedFiles[$i];
@@ -978,17 +1186,26 @@ function restore_moved_photo_files(array $movedFiles): array
         }
     }
 
+    if (isset($trashOperation['manifest']) && is_file((string) $trashOperation['manifest'])) {
+        @unlink((string) $trashOperation['manifest']);
+    }
+
     return $errors;
 }
 
-function remove_trashed_photo_files(array $movedFiles): array
+function remove_trashed_photo_files(array $trashOperation): array
 {
     $errors = [];
+    $movedFiles = $trashOperation['files'] ?? $trashOperation;
 
     foreach ($movedFiles as $file) {
         if (is_file($file['trash']) && !@unlink($file['trash'])) {
             $errors[] = 'Не вдалося остаточно видалити файл ' . basename((string) $file['trash']) . '.';
         }
+    }
+
+    if (isset($trashOperation['manifest']) && is_file((string) $trashOperation['manifest']) && !@unlink((string) $trashOperation['manifest'])) {
+        $errors[] = 'Не вдалося видалити журнал операції кошика.';
     }
 
     return $errors;

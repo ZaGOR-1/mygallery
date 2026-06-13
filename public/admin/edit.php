@@ -17,7 +17,8 @@ try {
     $stmt = db()->prepare('SELECT * FROM photos WHERE id = :id');
     $stmt->execute(['id' => $id]);
     $photo = $stmt->fetch();
-} catch (Throwable) {
+} catch (Throwable $exception) {
+    app_log_exception($exception, 'Edit fetch failed');
     set_flash('error', 'Не вдалося завантажити фотографію для редагування.');
     redirect('admin/index.php');
 }
@@ -35,12 +36,19 @@ $newAlbumName = '';
 
 try {
     $albumOptions = get_album_options();
-} catch (Throwable) {
+} catch (Throwable $exception) {
+    app_log_exception($exception, 'Album options failed');
     $errors[] = 'Не вдалося завантажити список альбомів. Перевірте схему бази даних.';
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $selectedAlbumId = get_album_id_from_post('album_id');
+    try {
+        $selectedAlbumId = get_album_id_from_post('album_id');
+    } catch (InvalidArgumentException $exception) {
+        $selectedAlbumId = null;
+        $errors[] = $exception->getMessage();
+    }
+
     $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
 
     if (!verify_csrf()) {
@@ -48,34 +56,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $title = trim((string) ($_POST['title'] ?? ''));
-    $description = trim((string) ($_POST['description'] ?? ''));
+    $description = clean_description((string) ($_POST['description'] ?? ''));
 
     if ($title === '') {
         $errors[] = 'Назва не може бути порожньою.';
     }
 
-    $albumId = null;
     if (empty($errors)) {
-        try {
-            $albumId = resolve_album_id_from_post();
-        } catch (InvalidArgumentException $exception) {
-            $errors[] = $exception->getMessage();
-        }
-    }
+        $pdo = db();
 
-    if (empty($errors)) {
         try {
-            $stmt = db()->prepare('UPDATE photos SET album_id = :album_id, title = :title, description = :description WHERE id = :id');
+            $pdo->beginTransaction();
+            $albumId = resolve_album_id_from_post();
+            $stmt = $pdo->prepare('UPDATE photos SET album_id = :album_id, title = :title, description = :description WHERE id = :id');
             $stmt->execute([
                 'album_id' => $albumId,
                 'title' => text_limit($title, 255),
-                'description' => $description === '' ? null : $description,
+                'description' => $description,
                 'id' => $id,
             ]);
+            $pdo->commit();
 
             set_flash('success', 'Фотографію оновлено.');
             redirect('admin/index.php');
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            app_log_exception($exception, 'Photo edit failed');
             $errors[] = 'Не вдалося оновити фотографію.';
         }
     }
@@ -98,11 +107,11 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <?= csrf_field() ?>
         <label>
             Назва
-            <input type="text" name="title" value="<?= h((string) $photo['title']) ?>" maxlength="255" required>
+            <input type="text" name="title" value="<?= h((string) ($title ?? $photo['title'])) ?>" maxlength="255" required>
         </label>
         <label>
             Опис
-            <textarea name="description" rows="6"><?= h((string) $photo['description']) ?></textarea>
+            <textarea name="description" rows="6" maxlength="<?= h((string) description_max_length()) ?>"><?= h((string) ($description ?? $photo['description'])) ?></textarea>
         </label>
         <label>
             Альбом
