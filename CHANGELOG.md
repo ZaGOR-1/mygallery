@@ -1,5 +1,9 @@
 # Changelog
 
+## v6.4.7
+
+- Security: fixed admin login brute-force bypass (`public/admin/login.php`). The lockout was only gated by a trivial, self-revealing arithmetic CAPTCHA whose correct answer reset the time lock, allowing unlimited automated password guessing. The lockout is now strictly time-based (`login_attempts.locked_until`): while a bucket is locked, login attempts are rejected outright with a `Retry-After` header, and no CAPTCHA can bypass it. Removed the CAPTCHA field and related session state.
+
 ## v6.4.6
 
 - Made album privacy, album sort order and dominant color migrations idempotent so they can be rerun safely.

@@ -10,6 +10,9 @@
     --accent: #d6a756;
     --danger: #d65f5f;
     --success: #6fbf8f;
+    --header-bg: rgba(16, 16, 16, 0.94);
+    --lightbox-bg: rgba(0, 0, 0, 0.88);
+    --image-bg: #0a0a0a;
     
     /* Design Tokens */
     --radius-sm: 4px;
@@ -17,6 +20,23 @@
     --radius-lg: 12px;
     --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+:root[data-theme="light"] {
+    --bg: #f9f9fb;
+    --panel: #ffffff;
+    --panel-light: #f1f3f5;
+    --text: #212529;
+    --muted: #868e96;
+    --line: #dee2e6;
+    --accent: #b8860b;
+    --danger: #e03131;
+    --success: #2f9e44;
+    --header-bg: rgba(249, 249, 251, 0.94);
+    --lightbox-bg: rgba(255, 255, 255, 0.92);
+    --image-bg: #f1f3f5;
+    --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 * {
@@ -29,6 +49,10 @@ picture {
 
 html {
     color-scheme: dark;
+}
+
+html[data-theme="light"] {
+    color-scheme: light;
 }
 
 body {
@@ -61,7 +85,7 @@ img {
     top: 0;
     z-index: 10;
     border-bottom: 1px solid var(--line);
-    background: rgba(16, 16, 16, 0.94);
+    background: var(--header-bg);
     backdrop-filter: blur(12px);
 }
 
@@ -152,6 +176,12 @@ img {
     background:
         linear-gradient(90deg, rgba(16, 16, 16, 0.92), rgba(16, 16, 16, 0.58) 48%, rgba(16, 16, 16, 0.18)),
         linear-gradient(180deg, rgba(16, 16, 16, 0.14), rgba(16, 16, 16, 0.82));
+}
+
+html[data-theme="light"] .hero::after {
+    background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.58) 48%, rgba(255, 255, 255, 0.18)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.82));
 }
 
 .hero-image {
@@ -304,7 +334,7 @@ button.button {
     height: auto;
     aspect-ratio: 4 / 3;
     object-fit: cover;
-    background: #0a0a0a;
+    background: var(--image-bg);
     border-radius: calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0 0;
 }
 
@@ -430,13 +460,19 @@ button.button {
     pointer-events: none;
 }
 
+html[data-theme="light"] .album-card::after {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06) 28%, rgba(255, 255, 255, 0.7) 78%, rgba(255, 255, 255, 0.92) 100%),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.44), rgba(255, 255, 255, 0.04) 58%);
+}
+
 .album-card img,
 .album-card-empty {
     width: 100%;
     height: 100%;
     aspect-ratio: 16 / 10;
     object-fit: cover;
-    background: #050505;
+    background: var(--image-bg);
 }
 
 .album-card img {
@@ -535,7 +571,7 @@ button.button {
 
 .large-photo {
     margin: 0 0 22px;
-    background: #050505;
+    background: var(--image-bg);
 }
 
 .large-photo-link {
@@ -571,7 +607,7 @@ button.button {
     position: absolute;
     inset: 0;
     border: 0;
-    background: rgba(0, 0, 0, 0.88);
+    background: var(--lightbox-bg);
     cursor: zoom-out;
 }
 
@@ -636,7 +672,7 @@ button.button {
     overflow: hidden;
     min-height: 0;
     height: 100%;
-    background: #050505;
+    background: var(--image-bg);
     cursor: default;
     touch-action: none;
 }
@@ -793,11 +829,16 @@ select,
 textarea {
     width: 100%;
     border: 1px solid var(--line);
-    background: #0b0b0b;
+    background: var(--panel-light);
     color: var(--text);
     padding: 12px;
     font: inherit;
     border-radius: var(--radius-sm);
+
+    /* Theme toggler icons */
+    .theme-icon-light { display: none; }
+    html[data-theme="light"] .theme-icon-dark { display: none; }
+    html[data-theme="light"] .theme-icon-light { display: block !important; }
     transition: border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
