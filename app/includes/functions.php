@@ -488,36 +488,42 @@ function get_album_id_from_post(string $key = 'album_id'): ?int
     return (int) $id;
 }
 
-function get_album_options(bool $withCounts = false): array
+function get_album_options(bool $withCounts = false, bool $includePrivate = false): array
 {
+    $where = $includePrivate ? '' : ' WHERE albums.is_private = 0 ';
     if ($withCounts) {
         $stmt = db()->query(
-            'SELECT albums.id, albums.name, albums.cover_photo_id, COUNT(photos.id) AS photo_count
+            "SELECT albums.id, albums.name, albums.cover_photo_id, albums.sort_order, albums.is_private, COUNT(photos.id) AS photo_count
             FROM albums
             LEFT JOIN photos ON photos.album_id = albums.id
-            GROUP BY albums.id, albums.name, albums.cover_photo_id
-            ORDER BY albums.name ASC'
+            $where
+            GROUP BY albums.id, albums.name, albums.cover_photo_id, albums.sort_order, albums.is_private
+            ORDER BY albums.sort_order ASC, albums.name ASC"
         );
 
         return $stmt->fetchAll();
     }
 
-    $stmt = db()->query('SELECT id, name, cover_photo_id FROM albums ORDER BY name ASC');
+    $stmt = db()->query("SELECT id, name, cover_photo_id, sort_order, is_private FROM albums $where ORDER BY sort_order ASC, name ASC");
 
     return $stmt->fetchAll();
 }
 
-function get_public_albums_with_covers(): array
+function get_public_albums_with_covers(bool $includePrivate = false): array
 {
+    $where = $includePrivate ? '' : ' WHERE a.is_private = 0 ';
     $stmt = db()->query(
-        'SELECT
+        "SELECT
             a.id,
             a.name,
             a.cover_photo_id,
+            a.sort_order,
+            a.is_private,
             p.filename,
             p.thumbnail_filename,
             p.width,
             p.title AS cover_title,
+            p.dominant_color,
             COUNT(p2.id) AS photo_count,
             MAX(p2.created_at) AS last_photo_at
         FROM albums a
@@ -532,8 +538,9 @@ function get_public_albums_with_covers(): array
             )
         END
         LEFT JOIN photos p2 ON p2.album_id = a.id
-        GROUP BY a.id, a.name, a.cover_photo_id, p.filename, p.thumbnail_filename, p.width, p.title
-        ORDER BY a.name ASC'
+        $where
+        GROUP BY a.id, a.name, a.cover_photo_id, a.sort_order, a.is_private, p.filename, p.thumbnail_filename, p.width, p.title, p.dominant_color
+        ORDER BY a.sort_order ASC, a.name ASC"
     );
 
     return $stmt->fetchAll();
@@ -547,7 +554,7 @@ function album_exists(int $id): bool
     return (int) $stmt->fetchColumn() > 0;
 }
 
-function find_or_create_album(string $name): int
+function find_or_create_album(string $name, int $isPrivate = 0): int
 {
     $name = clean_album_name($name);
 
@@ -556,10 +563,10 @@ function find_or_create_album(string $name): int
     }
 
     $stmt = db()->prepare(
-        'INSERT INTO albums (name) VALUES (:name)
+        'INSERT INTO albums (name, is_private) VALUES (:name, :is_private)
         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)'
     );
-    $stmt->execute(['name' => $name]);
+    $stmt->execute(['name' => $name, 'is_private' => $isPrivate]);
 
     return (int) db()->lastInsertId();
 }
@@ -837,6 +844,14 @@ function build_gallery_where_clause(array $filters, array &$params, bool $includ
         $params['date_to'] = $filters['date_to'] . ' 23:59:59';
     }
 
+    // If not in admin view, exclude private albums
+    if (!$includeOriginalName) {
+        global $isSharedView;
+        if (!($isSharedView ?? false)) {
+            $where[] = '(albums.is_private IS NULL OR albums.is_private = 0)';
+        }
+    }
+
     $whereSql = empty($where) ? '' : ' WHERE ' . implode(' AND ', $where);
 
     return $joinSql . $whereSql;
@@ -847,7 +862,7 @@ function count_photos(PDO $pdo, array $filters, bool $includeOriginalName = fals
     $params = [];
     $sqlSuffix = build_gallery_where_clause($filters, $params, $includeOriginalName);
 
-    $stmt = $pdo->prepare('SELECT COUNT(DISTINCT photos.id) FROM photos' . $sqlSuffix);
+    $stmt = $pdo->prepare('SELECT COUNT(DISTINCT photos.id) FROM photos LEFT JOIN albums ON albums.id = photos.album_id' . $sqlSuffix);
     foreach ($params as $key => $value) {
         $stmt->bindValue(':' . $key, $value);
     }
@@ -872,7 +887,7 @@ function fetch_photos(PDO $pdo, array $filters, int $limit, int $offset, bool $i
     $params = [];
     $sqlSuffix = build_gallery_where_clause($filters, $params, $includeOriginalName);
 
-    $selectCols = 'photos.id, photos.filename, photos.thumbnail_filename, photos.width, photos.title, photos.camera_model, photos.taken_at, albums.name AS album_name';
+    $selectCols = 'photos.id, photos.filename, photos.thumbnail_filename, photos.width, photos.title, photos.camera_model, photos.taken_at, photos.dominant_color, albums.name AS album_name';
     if ($includeOriginalName) {
         $selectCols .= ', photos.original_name, photos.description, photos.created_at, photos.file_size';
     }
@@ -898,7 +913,7 @@ function fetch_photos(PDO $pdo, array $filters, int $limit, int $offset, bool $i
 function fetch_photo_by_id(PDO $pdo, int $id): ?array
 {
     $stmt = $pdo->prepare(
-        'SELECT photos.*, albums.name AS album_name
+        'SELECT photos.*, albums.name AS album_name, albums.is_private AS album_is_private
         FROM photos
         LEFT JOIN albums ON albums.id = photos.album_id
         WHERE photos.id = :id'
@@ -909,10 +924,10 @@ function fetch_photo_by_id(PDO $pdo, int $id): ?array
     return $photo ?: null;
 }
 
-function fetch_filter_options(PDO $pdo): array
+function fetch_filter_options(PDO $pdo, bool $includePrivate = false): array
 {
     return [
-        'albums' => get_album_options(true),
+        'albums' => get_album_options(true, $includePrivate),
         'tags' => get_tag_options(true),
         'cameras' => $pdo
             ->query("SELECT DISTINCT camera_model FROM photos WHERE camera_model IS NOT NULL AND camera_model <> '' ORDER BY camera_model ASC")

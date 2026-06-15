@@ -26,7 +26,7 @@ if (!headers_sent()) {
 <body>
 <main class="error-page">
     <section class="container error-panel">
-        <span class="error-code">HTTP 404</span>
+        <span class="error-code">HTTP <?= h((string) $errorStatusCode) ?></span>
         <h1><?= h($errorTitle) ?></h1>
         <p><?= h($errorMessage) ?></p>
         <div class="toolbar-actions">

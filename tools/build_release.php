@@ -59,6 +59,7 @@ function release_should_exclude(string $relative, bool $isDir): bool
         'scripts',
         'tests',
         'storage/test_sessions',
+        'storage/download_locks',
     ];
 
     foreach ($excludedDirs as $dir) {
@@ -134,7 +135,7 @@ function release_forbidden_reason(string $entry): ?string
         '#\.(log|bak|backup|tmp)$#i' => 'тимчасові/лог/backup-файли не можна додавати в ZIP',
         '#(^|/)storage/originals/.*\.(jpe?g|png|webp|avif)$#i' => 'оригінали фото не можна додавати в release ZIP',
         '#(^|/)public/uploads/(large|thumbnails|originals)/.*\.(jpe?g|png|webp|avif)$#i' => 'завантажені фото не можна додавати в release ZIP',
-        '#(^|/)storage/(logs|sessions|trash)/.+#' => 'runtime-файли storage не можна додавати в ZIP',
+        '#(^|/)storage/(logs|sessions|trash|download_locks)/.+#' => 'runtime-файли storage не можна додавати в ZIP',
     ];
 
     foreach ($checks as $pattern => $reason) {

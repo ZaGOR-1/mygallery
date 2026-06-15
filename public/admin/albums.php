@@ -15,9 +15,7 @@ $editingAlbum = null;
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'photo_service.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!verify_csrf()) {
-        $errors[] = 'Помилка CSRF-захисту. Оновіть сторінку і спробуйте ще раз.';
-    }
+    require_csrf();
 
     $action = (string) ($_POST['action'] ?? '');
     $albumId = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
@@ -26,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($coverPhotoId === false || $coverPhotoId < 1) {
         $coverPhotoId = null;
     }
+    $isPrivate = isset($_POST['is_private']) && $_POST['is_private'] === '1' ? 1 : 0;
 
     if (empty($errors)) {
         try {
@@ -34,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new InvalidArgumentException('Назва альбому не може бути порожньою.');
                 }
 
-                find_or_create_album($albumName);
+                find_or_create_album($albumName, $isPrivate);
                 set_flash('success', 'Альбом створено.');
                 redirect('admin/albums.php');
             } elseif ($action === 'update') {
@@ -42,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new InvalidArgumentException('Некоректний альбом.');
                 }
                 
-                update_album_with_validation(db(), $albumId, $albumName, $coverPhotoId);
+                update_album_with_validation(db(), $albumId, $albumName, $coverPhotoId, $isPrivate);
                 
                 set_flash('success', 'Альбом оновлено.');
                 redirect('admin/albums.php');
@@ -54,6 +53,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 delete_album_with_validation(db(), $albumId);
                 
                 set_flash('success', 'Альбом видалено. Фотографії залишилися без альбому.');
+                redirect('admin/albums.php');
+            } elseif ($action === 'move_up') {
+                if ($albumId === false || $albumId === null || $albumId < 1) {
+                    throw new InvalidArgumentException('Некоректний альбом.');
+                }
+
+                reorder_album(db(), $albumId, 'up');
+                set_flash('success', 'Порядок альбому змінено.');
+                redirect('admin/albums.php');
+            } elseif ($action === 'move_down') {
+                if ($albumId === false || $albumId === null || $albumId < 1) {
+                    throw new InvalidArgumentException('Некоректний альбом.');
+                }
+
+                reorder_album(db(), $albumId, 'down');
+                set_flash('success', 'Порядок альбому змінено.');
                 redirect('admin/albums.php');
             } else {
                 $errors[] = 'Невідома дія.';
@@ -68,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 try {
-    $albums = get_public_albums_with_covers();
+    $albums = get_public_albums_with_covers(true);
 
     if ($editingAlbumId !== null) {
         foreach ($albums as $album) {
@@ -111,6 +126,10 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <label>
             Назва
             <input type="text" name="name" value="<?= h((string) ($editingAlbum['name'] ?? '')) ?>" maxlength="100" required>
+        </label>
+        <label class="checkbox-label">
+            <input type="checkbox" name="is_private" value="1" <?= (!empty($editingAlbum['is_private'])) ? 'checked' : '' ?>>
+            <span>Приватний альбом (приховати з публічної галереї)</span>
         </label>
         <?php if ($editingAlbum): ?>
             <label>
@@ -164,13 +183,16 @@ $albumShares = $stmt->fetchAll();
                         <?= $expiresAt === '' ? 'Без строку дії' : ($isExpired ? 'Застаріло: ' : 'Діє до: ') . h($expiresAt) ?>
                     </span>
                 </div>
-                <form method="post" action="<?= h(url('admin/share.php')) ?>" data-confirm="Видалити посилання?">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="revoke">
-                    <input type="hidden" name="id" value="<?= h((string)$link['id']) ?>">
-                    <input type="hidden" name="return_to" value="admin/albums.php?edit=<?= h((string)$editingAlbum['id']) ?>">
-                    <button class="button danger" type="submit">Відкликати</button>
-                </form>
+                <div class="admin-actions">
+                    <button class="button secondary btn-copy" data-copy-text="<?= h(url('share.php?token=' . $link['token'])) ?>" type="button">Копіювати</button>
+                    <form method="post" action="<?= h(url('admin/share.php')) ?>" data-confirm="Видалити посилання?">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="revoke">
+                        <input type="hidden" name="id" value="<?= h((string)$link['id']) ?>">
+                        <input type="hidden" name="return_to" value="admin/albums.php?edit=<?= h((string)$editingAlbum['id']) ?>">
+                        <button class="button danger" type="submit">Відкликати</button>
+                    </form>
+                </div>
             </li>
         <?php endforeach; ?>
         </ul>
@@ -205,19 +227,31 @@ $albumShares = $stmt->fetchAll();
     </section>
 <?php else: ?>
     <div class="admin-list admin-collection-list">
-        <?php foreach ($albums as $album): ?>
+        <?php foreach ($albums as $index => $album): ?>
             <article class="admin-item album-item">
                 <div class="admin-item-media album-cover-preview">
                     <?php if (!empty($album['thumbnail_filename'])): ?>
-                        <img
-                            src="<?= h(photo_display_url($album)) ?>"
-                            srcset="<?= h(photo_cover_srcset($album)) ?>"
-                            sizes="120px"
-                            alt="<?= h($album['cover_title'] ?: $album['name']) ?>"
-                            width="600"
-                            height="400"
-                            loading="lazy"
-                        >
+                        <picture>
+                            <?php
+                            $avifSrcset = photo_cover_srcset_next_gen($album, 'avif');
+                            if ($avifSrcset !== ''): ?>
+                                <source srcset="<?= h($avifSrcset) ?>" type="image/avif" sizes="120px">
+                            <?php endif; ?>
+                            <?php
+                            $webpSrcset = photo_cover_srcset_next_gen($album, 'webp');
+                            if ($webpSrcset !== ''): ?>
+                                <source srcset="<?= h($webpSrcset) ?>" type="image/webp" sizes="120px">
+                            <?php endif; ?>
+                            <img
+                                src="<?= h(photo_display_url($album)) ?>"
+                                srcset="<?= h(photo_cover_srcset($album)) ?>"
+                                sizes="120px"
+                                alt="<?= h($album['cover_title'] ?: $album['name']) ?>"
+                                width="600"
+                                height="400"
+                                loading="lazy"
+                            >
+                        </picture>
                     <?php else: ?>
                         <div class="admin-cover-empty">Без обкладинки</div>
                     <?php endif; ?>
@@ -227,9 +261,27 @@ $albumShares = $stmt->fetchAll();
                     <div class="admin-meta">
                         <span><?= h((string) (int) $album['photo_count']) ?> фото</span>
                         <span><?= !empty($album['cover_photo_id']) ? 'Обкладинку задано' : 'Автообкладинка' ?></span>
+                        <span>Порядок: <?= h((string) (int) $album['sort_order']) ?></span>
+                        <span><?= !empty($album['is_private']) ? '🔒 Приватний' : '🌐 Публічний' ?></span>
                     </div>
                 </div>
                 <div class="admin-actions">
+                    <?php if ($index > 0): ?>
+                        <form method="post" action="<?= h(url('admin/albums.php')) ?>">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="action" value="move_up">
+                            <input type="hidden" name="id" value="<?= h((string) $album['id']) ?>">
+                            <button class="button secondary" type="submit" title="Перемістити вгору">&#9650;</button>
+                        </form>
+                    <?php endif; ?>
+                    <?php if ($index < count($albums) - 1): ?>
+                        <form method="post" action="<?= h(url('admin/albums.php')) ?>">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="action" value="move_down">
+                            <input type="hidden" name="id" value="<?= h((string) $album['id']) ?>">
+                            <button class="button secondary" type="submit" title="Перемістити вниз">&#9660;</button>
+                        </form>
+                    <?php endif; ?>
                     <a class="button secondary" href="<?= h(url('gallery.php?album_id=' . (int) $album['id'])) ?>">Перегляд</a>
                     <a class="button secondary" href="<?= h(url('admin/albums.php?edit=' . (int) $album['id'])) ?>">Редагувати</a>
                     <form method="post" action="<?= h(url('admin/albums.php')) ?>" data-confirm="Видалити альбом? Фотографії залишаться без альбому.">

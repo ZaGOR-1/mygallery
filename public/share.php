@@ -4,10 +4,35 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../app/includes/functions.php';
 
+$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+$rateLimitDir = storage_path('share_ratelimit');
+if (!is_dir($rateLimitDir)) {
+    @mkdir($rateLimitDir, 0755, true);
+}
+$rateLimitFile = $rateLimitDir . DIRECTORY_SEPARATOR . 'limit_' . md5($ip) . '.json';
+$limitData = @file_get_contents($rateLimitFile);
+$limitArr = $limitData ? json_decode($limitData, true) : ['count' => 0, 'time' => time()];
+if (time() - $limitArr['time'] > 60) {
+    $limitArr = ['count' => 1, 'time' => time()];
+} else {
+    $limitArr['count']++;
+}
+@file_put_contents($rateLimitFile, json_encode($limitArr));
+if ($limitArr['count'] > 120) {
+    http_response_code(429);
+    $errorStatusCode = 429;
+    $errorTitle = 'Занадто багато запитів';
+    $errorMessage = 'Будь ласка, зачекайте хвилину перед наступним запитом.';
+    require __DIR__ . '/404.php';
+    exit;
+}
+
 $token = (string) ($_GET['token'] ?? '');
 
 if ($token === '') {
-    http_response_code(404);
+    $errorStatusCode = 404;
+    $errorTitle = 'Посилання не знайдено';
+    $errorMessage = 'Такого приватного посилання не існує або його було відкликано.';
     require __DIR__ . '/404.php';
     exit;
 }
@@ -17,14 +42,18 @@ $stmt->execute([$token]);
 $share = $stmt->fetch();
 
 if (!$share) {
-    http_response_code(404);
+    $errorStatusCode = 404;
+    $errorTitle = 'Посилання не знайдено';
+    $errorMessage = 'Такого приватного посилання не існує або його було відкликано.';
     require __DIR__ . '/404.php';
     exit;
 }
 
 if (!empty($share['expires_at']) && strtotime($share['expires_at']) < time()) {
-    http_response_code(404);
-    echo "Посилання застаріло.";
+    $errorStatusCode = 410;
+    $errorTitle = 'Посилання застаріло';
+    $errorMessage = 'Термін дії цього приватного посилання закінчився.';
+    require __DIR__ . '/404.php';
     exit;
 }
 
@@ -47,15 +76,29 @@ function render_shared_photo(array $photo, string $token, ?int $albumId = null) 
 
         <figure class="large-photo shared-photo-figure">
             <a href="<?= h($photoImageUrl) ?>" target="_blank">
-                <img
-                    src="<?= h($photoImageUrl) ?>"
-                    <?php if ($photoSrcset !== ''): ?>
-                        srcset="<?= h($photoSrcset) ?>"
-                        sizes="100vw"
+                <picture>
+                    <?php
+                    $avifSrcset = photo_responsive_srcset_next_gen($photo, 'avif');
+                    if ($avifSrcset !== ''): ?>
+                        <source srcset="<?= h($avifSrcset) ?>" type="image/avif" sizes="100vw">
                     <?php endif; ?>
-                    alt="<?= h($photo['title']) ?>"
-                    class="shared-photo-image"
-                >
+                    <?php
+                    $webpSrcset = photo_responsive_srcset_next_gen($photo, 'webp');
+                    if ($webpSrcset !== ''): ?>
+                        <source srcset="<?= h($webpSrcset) ?>" type="image/webp" sizes="100vw">
+                    <?php endif; ?>
+                    <img
+                        data-dominant-color="<?= h((string) ($photo['dominant_color'] ?? '')) ?>"
+                        src="<?= h($photoImageUrl) ?>"
+                        <?php if ($photoSrcset !== ''): ?>
+                            srcset="<?= h($photoSrcset) ?>"
+                            sizes="100vw"
+                        <?php endif; ?>
+                        alt="<?= h($photo['title']) ?>"
+                        class="shared-photo-image"
+                        onerror="this.style.opacity=0"
+                    >
+                </picture>
             </a>
         </figure>
     </article>
@@ -68,8 +111,10 @@ if (!empty($share['photo_id'])) {
     $id = (int) $share['photo_id'];
     $photo = fetch_photo_by_id(db(), $id);
     if (!$photo) {
-        http_response_code(404);
-        echo "Фотографію не знайдено.";
+        $errorStatusCode = 404;
+        $errorTitle = 'Фотографію не знайдено';
+        $errorMessage = 'Можливо, фотографія була видалена або переміщена.';
+        require __DIR__ . '/404.php';
         exit;
     }
     render_shared_photo($photo, $token);
@@ -84,8 +129,10 @@ if (!empty($share['album_id'])) {
         if ($photo && (int)$photo['album_id'] === $albumId) {
             render_shared_photo($photo, $token, $albumId);
         } else {
-            http_response_code(404);
-            echo "Фотографію не знайдено в цьому альбомі.";
+            $errorStatusCode = 404;
+            $errorTitle = 'Фотографію не знайдено';
+            $errorMessage = 'Ця фотографія не належить до вибраного альбому або була видалена.';
+            require __DIR__ . '/404.php';
             exit;
         }
     }
@@ -95,8 +142,10 @@ if (!empty($share['album_id'])) {
     $album = $stmt->fetch();
 
     if (!$album) {
-        http_response_code(404);
-        echo "Альбом не знайдено.";
+        $errorStatusCode = 404;
+        $errorTitle = 'Альбом не знайдено';
+        $errorMessage = 'Цей альбом більше не існує або доступ до нього обмежено.';
+        require __DIR__ . '/404.php';
         exit;
     }
 
@@ -106,5 +155,8 @@ if (!empty($share['album_id'])) {
     exit;
 }
 
-http_response_code(404);
-echo "Некоректне посилання.";
+$errorStatusCode = 400;
+$errorTitle = 'Некоректне посилання';
+$errorMessage = 'Вказане посилання не містить даних про фотографію або альбом.';
+require __DIR__ . '/404.php';
+exit;

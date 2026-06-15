@@ -133,6 +133,8 @@ foreach ($photos as $photo) {
                 },
                 $largePath
             );
+            create_webp_copy($largePath);
+            create_avif_copy($largePath);
         }
 
         if ($regenerateThumbnails) {
@@ -143,17 +145,19 @@ foreach ($photos as $photo) {
                 },
                 $thumbnailPath
             );
+            create_webp_copy($thumbnailPath);
+            create_avif_copy($thumbnailPath);
         }
 
+        $dominantColor = get_image_dominant_color($originalPath);
         [$width, $height] = regenerate_photo_dimensions($originalPath, $orientation);
-        if ($width !== null && $height !== null) {
-            $updateStmt = db()->prepare('UPDATE photos SET width = :width, height = :height WHERE id = :id');
-            $updateStmt->execute([
-                'width' => $width,
-                'height' => $height,
-                'id' => $id,
-            ]);
-        }
+        $updateStmt = db()->prepare('UPDATE photos SET width = :width, height = :height, dominant_color = :dominant_color WHERE id = :id');
+        $updateStmt->execute([
+            'width' => $width,
+            'height' => $height,
+            'dominant_color' => $dominantColor,
+            'id' => $id,
+        ]);
 
         $updated++;
         echo "[OK] #{$id}: regenerated {$filename}\n";

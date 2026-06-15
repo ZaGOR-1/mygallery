@@ -12,10 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect('admin/index.php');
 }
 
-if (!verify_csrf()) {
-    set_flash('error', 'Помилка CSRF-захисту. Оновіть сторінку і спробуйте ще раз.');
-    redirect('admin/index.php');
-}
+require_csrf();
 
 logout_admin();
 redirect('gallery.php');

@@ -35,7 +35,7 @@ $tagsInput = '';
 $tagNames = [];
 
 try {
-    $albumOptions = get_album_options();
+    $albumOptions = get_album_options(false, true);
     $tagsInput = tags_for_input(get_photo_tags($id));
 } catch (Throwable $exception) {
     app_log_exception($exception, 'Album options failed');
@@ -53,9 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $selectedAlbumId = (int) $rawAlbumId;
     }
 
-    if (!verify_csrf()) {
-        $errors[] = 'Помилка CSRF-захисту. Оновіть сторінку і спробуйте ще раз.';
-    }
+    require_csrf();
 
     $title = trim((string) ($_POST['title'] ?? ''));
     $description = clean_description((string) ($_POST['description'] ?? ''));
@@ -98,6 +96,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
     <form method="post" action="<?= h(url('admin/edit.php')) ?>" class="stacked-form">
         <?= csrf_field() ?>
         <input type="hidden" name="id" value="<?= h((string) $photo['id']) ?>">
+        <input type="hidden" name="updated_at" value="<?= h((string) ($photo['updated_at'] ?? '')) ?>">
         <label>
             Назва
             <input type="text" name="title" value="<?= h((string) ($title ?? $photo['title'])) ?>" maxlength="255" required>
@@ -146,13 +145,16 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
                         <?= $expiresAt === '' ? 'Без строку дії' : ($isExpired ? 'Застаріло: ' : 'Діє до: ') . h($expiresAt) ?>
                     </span>
                 </div>
-                <form method="post" action="<?= h(url('admin/share.php')) ?>" data-confirm="Видалити посилання?">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="revoke">
-                    <input type="hidden" name="id" value="<?= h((string)$link['id']) ?>">
-                    <input type="hidden" name="return_to" value="admin/edit.php?id=<?= h((string)$id) ?>">
-                    <button class="button danger" type="submit">Відкликати</button>
-                </form>
+                <div class="admin-actions">
+                    <button class="button secondary btn-copy" data-copy-text="<?= h(url('share.php?token=' . $link['token'])) ?>" type="button">Копіювати</button>
+                    <form method="post" action="<?= h(url('admin/share.php')) ?>" data-confirm="Видалити посилання?">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="revoke">
+                        <input type="hidden" name="id" value="<?= h((string)$link['id']) ?>">
+                        <input type="hidden" name="return_to" value="admin/edit.php?id=<?= h((string)$id) ?>">
+                        <button class="button danger" type="submit">Відкликати</button>
+                    </form>
+                </div>
             </li>
         <?php endforeach; ?>
         </ul>

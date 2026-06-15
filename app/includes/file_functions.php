@@ -45,12 +45,12 @@ function trash_path(string $filename = ''): string
 
 function valid_photo_filename(string $filename): bool
 {
-    return preg_match('/\A[a-f0-9]{32}\.jpg\z/', $filename) === 1;
+    return preg_match('/\A[a-f0-9]{32}\.(jpg|webp|avif)\z/', $filename) === 1;
 }
 
 function valid_trash_photo_filename(string $filename): bool
 {
-    return preg_match('/\A[a-f0-9]{32}-[0-9]+-[a-f0-9]{32}\.jpg\z/', $filename) === 1;
+    return preg_match('/\A[a-f0-9]{32}-[0-9]+-[a-f0-9]{32}\.(jpg|webp|avif)\z/', $filename) === 1;
 }
 
 function same_filesystem_path(string $left, string $right): bool
@@ -255,10 +255,16 @@ function validate_gd_memory_limit(int $width, int $height): array
     $pixels = $width * $height;
     $bytesPerPixel = 4;
     $sourceImage = $pixels * $bytesPerPixel;
-    $largePixels = min($width, (int) app_config()['LARGE_MAX_WIDTH']) * $height;
-    $largeImage = $largePixels * $bytesPerPixel;
-    $thumbnailPixels = min($width, 600) * $height;
-    $thumbnailImage = $thumbnailPixels * $bytesPerPixel;
+    
+    $maxLargeW = (int) app_config()['LARGE_MAX_WIDTH'];
+    $largeWidth = $width > $maxLargeW ? $maxLargeW : $width;
+    $largeHeight = $width > $maxLargeW ? (int) ($height * ($maxLargeW / $width)) : $height;
+    $largeImage = $largeWidth * $largeHeight * $bytesPerPixel;
+
+    $thumbWidth = $width > 600 ? 600 : $width;
+    $thumbHeight = $width > 600 ? (int) ($height * (600 / $width)) : $height;
+    $thumbnailImage = $thumbWidth * $thumbHeight * $bytesPerPixel;
+
     $estimatedNeed = (int) (($sourceImage * 2 + $largeImage + $thumbnailImage) * 1.35);
     $available = $memoryLimit - memory_get_usage(true);
 
@@ -645,6 +651,66 @@ function create_large_image(string $source, string $destination, mixed $orientat
     create_oriented_resized_jpeg($source, $destination, (int) app_config()['LARGE_MAX_WIDTH'], 95, $orientation);
 }
 
+function get_image_dominant_color(string $filepath): ?string
+{
+    $img = @imagecreatefromjpeg($filepath);
+    if (!$img) {
+        return null;
+    }
+
+    $tmp = imagecreatetruecolor(1, 1);
+    if (!$tmp) {
+        imagedestroy($img);
+        return null;
+    }
+
+    imagecopyresampled($tmp, $img, 0, 0, 0, 0, 1, 1, imagesx($img), imagesy($img));
+    $color = imagecolorat($tmp, 0, 0);
+
+    $r = ($color >> 16) & 0xFF;
+    $g = ($color >> 8) & 0xFF;
+    $b = $color & 0xFF;
+
+    imagedestroy($img);
+    imagedestroy($tmp);
+
+    return sprintf('#%02x%02x%02x', $r, $g, $b);
+}
+
+function create_webp_copy(string $jpegPath): void
+{
+    if (!function_exists('imagewebp') || !is_file($jpegPath)) {
+        return;
+    }
+
+    $image = @imagecreatefromjpeg($jpegPath);
+    if (!$image) {
+        return;
+    }
+
+    $webpPath = preg_replace('/\.jpe?g$/i', '.webp', $jpegPath);
+    $quality = app_config()['IMAGE_QUALITY_WEBP'] ?? 85;
+    @imagewebp($image, $webpPath, (int)$quality);
+    imagedestroy($image);
+}
+
+function create_avif_copy(string $jpegPath): void
+{
+    if (!function_exists('imageavif') || !is_file($jpegPath)) {
+        return;
+    }
+
+    $image = @imagecreatefromjpeg($jpegPath);
+    if (!$image) {
+        return;
+    }
+
+    $avifPath = preg_replace('/\.jpe?g$/i', '.avif', $jpegPath);
+    $quality = app_config()['IMAGE_QUALITY_AVIF'] ?? 65;
+    @imageavif($image, $avifPath, (int)$quality);
+    imagedestroy($image);
+}
+
 function photo_display_url(array $photo): string
 {
     $filename = (string) $photo['filename'];
@@ -692,6 +758,49 @@ function photo_cover_srcset(array $photo): string
     return photo_responsive_srcset($photo);
 }
 
+function photo_responsive_srcset_next_gen(array $photo, string $extension): string
+{
+    $items = [];
+    $thumbnail = (string) ($photo['thumbnail_filename'] ?? '');
+    $filename = (string) ($photo['filename'] ?? '');
+
+    if ($thumbnail !== '') {
+        $nextGenThumb = preg_replace('/\.jpe?g$/i', '.' . $extension, $thumbnail);
+        if (safe_existing_upload_file_path('thumbnails', $nextGenThumb) !== null) {
+            $items[] = uploads_url('thumbnails', $nextGenThumb) . ' 600w';
+        }
+    }
+
+    if ($filename !== '') {
+        $nextGenLarge = preg_replace('/\.jpe?g$/i', '.' . $extension, $filename);
+        if (safe_existing_upload_file_path('large', $nextGenLarge) !== null) {
+            $largeWidth = (int) ($photo['width'] ?? 0);
+            if ($largeWidth > 0) {
+                $items[] = uploads_url('large', $nextGenLarge) . ' ' . $largeWidth . 'w';
+            }
+        }
+    }
+
+    return implode(', ', $items);
+}
+
+function photo_cover_srcset_next_gen(array $photo, string $extension): string
+{
+    $filename = (string) ($photo['filename'] ?? '');
+
+    if ($filename !== '') {
+        $nextGenLarge = preg_replace('/\.jpe?g$/i', '.' . $extension, $filename);
+        if (safe_existing_upload_file_path('large', $nextGenLarge) !== null) {
+            $largeWidth = (int) ($photo['width'] ?? 0);
+            $largeWidth = $largeWidth > 0 ? min($largeWidth, (int) app_config()['LARGE_MAX_WIDTH']) : (int) app_config()['LARGE_MAX_WIDTH'];
+
+            return uploads_url('large', $nextGenLarge) . ' ' . $largeWidth . 'w';
+        }
+    }
+
+    return photo_responsive_srcset_next_gen($photo, $extension);
+}
+
 function photo_card_sizes(): string
 {
     return '(max-width: 700px) 100vw, (max-width: 1100px) 50vw, 25vw';
@@ -719,11 +828,27 @@ function photo_file_paths(array $photo): array
     $large = safe_existing_upload_file_path('large', $filename);
     if ($large !== null) {
         $paths[] = $large;
+        $largeWebp = preg_replace('/\.jpe?g$/i', '.webp', $large);
+        if (is_file($largeWebp)) {
+            $paths[] = $largeWebp;
+        }
+        $largeAvif = preg_replace('/\.jpe?g$/i', '.avif', $large);
+        if (is_file($largeAvif)) {
+            $paths[] = $largeAvif;
+        }
     }
 
     $thumbnailPath = safe_existing_upload_file_path('thumbnails', $thumbnail);
     if ($thumbnailPath !== null) {
         $paths[] = $thumbnailPath;
+        $thumbnailWebp = preg_replace('/\.jpe?g$/i', '.webp', $thumbnailPath);
+        if (is_file($thumbnailWebp)) {
+            $paths[] = $thumbnailWebp;
+        }
+        $thumbnailAvif = preg_replace('/\.jpe?g$/i', '.avif', $thumbnailPath);
+        if (is_file($thumbnailAvif)) {
+            $paths[] = $thumbnailAvif;
+        }
     }
 
     return $paths;
@@ -934,11 +1059,23 @@ function move_photo_files_to_trash(array $photo): array
         ];
     }
 
+    $tagNames = [];
+    if (isset($photo['id'])) {
+        try {
+            $tags = get_photo_tags((int) $photo['id']);
+            $tagNames = array_column($tags, 'name');
+        } catch (Throwable $e) {
+            app_log_exception($e, 'Could not read tags for trash manifest');
+        }
+    }
+
     $manifestPath = trash_path($operationId . '.json');
     $manifest = [
         'operation_id' => $operationId,
         'photo_id' => isset($photo['id']) ? (int) $photo['id'] : null,
         'created_at' => date('c'),
+        'photo_data' => $photo,
+        'tags' => $tagNames,
         'files' => array_map(
             static fn (array $file): array => [
                 'area' => $file['area'],

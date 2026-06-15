@@ -12,11 +12,15 @@ CREATE TABLE IF NOT EXISTS `albums` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(100) NOT NULL,
   `cover_photo_id` INT UNSIGNED NULL,
+  `sort_order` INT NOT NULL DEFAULT 0,
+  `is_private` TINYINT(1) NOT NULL DEFAULT 0,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_albums_name` (`name`),
-  KEY `idx_albums_cover_photo_id` (`cover_photo_id`)
+  KEY `idx_albums_cover_photo_id` (`cover_photo_id`),
+  KEY `idx_albums_sort_order` (`sort_order`),
+  KEY `idx_albums_is_private` (`is_private`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `photos` (
@@ -37,6 +41,7 @@ CREATE TABLE IF NOT EXISTS `photos` (
   `taken_at` DATETIME NULL,
   `exif_json` JSON NULL,
   `original_sha256` CHAR(64) NULL,
+  `dominant_color` VARCHAR(7) NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

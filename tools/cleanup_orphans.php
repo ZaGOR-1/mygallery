@@ -76,11 +76,20 @@ $orphans = [];
 
 foreach ($scanLocations as $location => $basePath) {
     [$root, $folder] = explode(':', $location, 2);
-    $files = glob($basePath . DIRECTORY_SEPARATOR . '*.jpg') ?: [];
+    $jpgs = glob($basePath . DIRECTORY_SEPARATOR . '*.jpg') ?: [];
+    $webps = glob($basePath . DIRECTORY_SEPARATOR . '*.webp') ?: [];
+    $avifs = glob($basePath . DIRECTORY_SEPARATOR . '*.avif') ?: [];
+    $files = array_merge($jpgs, $webps, $avifs);
 
     foreach ($files as $file) {
         $filename = basename($file);
-        $known = isset($expected[$location][$filename]);
+        $baseJpg = $filename;
+        if (str_ends_with($filename, '.webp')) {
+            $baseJpg = substr($filename, 0, -5) . '.jpg';
+        } elseif (str_ends_with($filename, '.avif')) {
+            $baseJpg = substr($filename, 0, -5) . '.jpg';
+        }
+        $known = isset($expected[$location][$baseJpg]);
 
         if (!$known || $location === 'public:originals') {
             $orphans[] = [$root, $folder, $filename, $location === 'public:originals' ? 'legacy public original' : 'orphan'];

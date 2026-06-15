@@ -1,6 +1,6 @@
 # Security Audit
 
-Актуально для MyGallery v6.1.0 після виправлення medium issues з `FULL_PROJECT_AUDIT.md`.
+Актуально для MyGallery v6.4.6 після виправлення medium issues з `FULL_PROJECT_AUDIT.md`.
 
 ## 1. Executive Summary
 

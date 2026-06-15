@@ -14,9 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect('admin/index.php');
 }
 
-if (!verify_csrf()) {
-    die('Помилка CSRF-захисту. Спробуйте ще раз.');
-}
+require_csrf();
 
 $photoIdsRaw = $_POST['photo_ids'] ?? [];
 $action = $_POST['bulk_action'] ?? 'edit';
@@ -34,7 +32,28 @@ if (empty($photoIds)) {
     redirect('admin/index.php');
 }
 
-if ($action === 'save') {
+if ($action === 'delete') {
+    require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'photo_service.php';
+    try {
+        $pdo = db();
+        $successCount = 0;
+        foreach ($photoIds as $pid) {
+            $stmt = $pdo->prepare('SELECT * FROM photos WHERE id = ?');
+            $stmt->execute([$pid]);
+            $photo = $stmt->fetch();
+            if ($photo) {
+                delete_photo_with_trash($pdo, $pid, $photo);
+                $successCount++;
+            }
+        }
+        set_flash('success', 'Успішно переміщено в кошик: ' . $successCount . ' фото.');
+        redirect('admin/index.php');
+    } catch (Throwable $e) {
+        app_log_exception($e, 'Bulk delete failed');
+        set_flash('error', 'Не вдалося видалити деякі фотографії. Дивіться логи.');
+        redirect('admin/index.php');
+    }
+} elseif ($action === 'save') {
     $newAlbumIdRaw = $_POST['album_id'] ?? '';
     $newTags = (string) ($_POST['tags'] ?? '');
 
@@ -45,6 +64,9 @@ if ($action === 'save') {
         // 1. Update album
         if ($newAlbumIdRaw === 'null') {
             // Remove from album
+            // Remove from album
+            $stmtCover = $pdo->prepare('UPDATE albums SET cover_photo_id = NULL WHERE cover_photo_id IN (' . implode(',', $photoIds) . ')');
+            $stmtCover->execute();
             $placeholders = implode(',', array_fill(0, count($photoIds), '?'));
             $stmt = $pdo->prepare("UPDATE photos SET album_id = NULL WHERE id IN ($placeholders)");
             $stmt->execute($photoIds);
@@ -57,6 +79,8 @@ if ($action === 'save') {
             if (!$albumCheck->fetch()) {
                 throw new InvalidArgumentException('Вибраний альбом не існує.');
             }
+            $stmtCover = $pdo->prepare('UPDATE albums SET cover_photo_id = NULL WHERE id != ? AND cover_photo_id IN (' . implode(',', $photoIds) . ')');
+            $stmtCover->execute([$albumId]);
             $placeholders = implode(',', array_fill(0, count($photoIds), '?'));
             $params = array_merge([$albumId], $photoIds);
             $stmt = $pdo->prepare("UPDATE photos SET album_id = ? WHERE id IN ($placeholders)");
@@ -83,6 +107,9 @@ if ($action === 'save') {
         set_flash('success', 'Масове редагування успішно завершено для ' . count($photoIds) . ' фото.');
         redirect('admin/index.php');
     } catch (InvalidArgumentException $e) {
+        if (isset($pdo) && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         $errors[] = $e->getMessage();
     } catch (Throwable $e) {
         if (isset($pdo) && $pdo->inTransaction()) {
@@ -95,7 +122,7 @@ if ($action === 'save') {
 
 // Show form (action === 'edit' or error during 'save')
 try {
-    $albumOptions = get_album_options(true);
+    $albumOptions = get_album_options(true, true);
 } catch (Throwable $e) {
     app_log_exception($e, 'Failed to fetch albums for bulk edit');
     $albumOptions = [];

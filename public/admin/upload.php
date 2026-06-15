@@ -23,7 +23,7 @@ $maxSingleFileSize = $uploadMaxFilesize > 0 ? min($appUploadLimit, $uploadMaxFil
 $maxTotalPostSize = $postMaxSize > 0 ? $postMaxSize : 0;
 
 try {
-    $albumOptions = get_album_options();
+    $albumOptions = get_album_options(false, true);
 } catch (Throwable $exception) {
     app_log_exception($exception, 'Album options failed');
     $errors[] = 'Не вдалося завантажити список альбомів. Перевірте схему бази даних.';
@@ -45,8 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($requestTooLarge) {
         $errors[] = 'Загальний об’єм файлів завеликий для сервера. Максимальний розмір пакета - ' . bytes_for_display($maxTotalPostSize) . '.';
-    } elseif (!verify_csrf()) {
-        $errors[] = 'Помилка CSRF-захисту. Оновіть сторінку і спробуйте ще раз.';
+    } else {
+        require_csrf();
     }
 
     if (!$requestTooLarge) {
@@ -136,7 +136,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <div class="alert alert-error"><?= h($error) ?></div>
     <?php endforeach; ?>
 
-    <form method="post" action="<?= h(url('admin/upload.php')) ?>" enctype="multipart/form-data" class="stacked-form">
+    <form method="post" action="<?= h(url('admin/upload.php')) ?>" enctype="multipart/form-data" class="stacked-form" data-max-single-file="<?= h((string) $maxSingleFileSize) ?>" data-max-total-size="<?= h((string) $maxTotalPostSize) ?>" id="upload-form">
         <?= csrf_field() ?>
         <label>
             Назва
@@ -165,9 +165,12 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             <input type="text" name="tags" value="<?= h($tagsInput) ?>" maxlength="500" placeholder="портрет, місто, Nikon D7100">
             <span class="form-hint">Розділяйте теги комами. Максимум 20 тегів на фото.</span>
         </label>
-        <label>
-            JPEG-файл(и)
-            <input type="file" name="photo[]" accept="image/jpeg" multiple required>
+        <label class="file-upload-label">
+            JPEG-файли для завантаження
+            <div class="drop-zone" id="upload-drop-zone">
+                <span class="drop-zone-text">Перетягніть фотографії сюди або натисніть для вибору</span>
+                <input type="file" name="photo[]" id="photo-input" accept="image/jpeg" multiple required>
+            </div>
         </label>
         <?php if ($maxSingleFileSize > 0): ?>
             <p class="form-hint">

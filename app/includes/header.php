@@ -17,6 +17,7 @@ $flashMessages = get_flash_messages();
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= h($pageTitle) ?></title>
     <link rel="stylesheet" href="<?= h(local_url('assets/css/style.css')) ?>">
+    <link rel="icon" href="<?= h(local_url('assets/favicon.svg')) ?>" type="image/svg+xml">
 </head>
 <body>
 <header class="site-header">

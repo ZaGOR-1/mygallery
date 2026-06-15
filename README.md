@@ -199,6 +199,13 @@ C:\wamp64\bin\php\php8.3.14\php.exe tools\self_check.php
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_12_add_albums.sql"
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_13_hardening.sql"
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_13_add_tags.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_add_original_sha256.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_add_album_covers.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_add_session_version.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_create_share_links.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_add_album_sort_order.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_add_album_privacy.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_add_photo_dominant_color.sql"
 ```
 
 SQL-файли не містять `USE`, тому застосовуються до бази, яку ви явно передали в команді `mysql ... database_name < file.sql`.
@@ -439,7 +446,7 @@ php tools/regenerate_images.php --all --dry-run
 php tools/build_release.php
 ```
 
-На виході буде `dist/mygallery_<VERSION>_release.zip`, наприклад `dist/mygallery_6.1.0_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/backup-файли або реальні фото з upload/storage.
+На виході буде `dist/mygallery_<VERSION>_release.zip`, наприклад `dist/mygallery_6.4.6_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/backup-файли або реальні фото з upload/storage.
 
 Приватний backup:
 

@@ -224,3 +224,21 @@ echo "Thumbnails: " . $manifest['files']['public_thumbnails'] . "\n";
 if (!$includeConfig) {
     echo "config/database.php НЕ включено. Додайте --include-config тільки для приватного backup.\n";
 }
+
+function backup_rotate(string $backupDir, int $keep = 5): void
+{
+    $files = glob($backupDir . DIRECTORY_SEPARATOR . 'mygallery_backup_*.zip');
+    if ($files === false || count($files) <= $keep) {
+        return;
+    }
+    
+    usort($files, static fn (string $a, string $b): int => filemtime($a) <=> filemtime($b));
+    
+    $toDelete = count($files) - $keep;
+    for ($i = 0; $i < $toDelete; $i++) {
+        @unlink($files[$i]);
+        echo "Видалено старий бекап: " . basename($files[$i]) . "\n";
+    }
+}
+
+backup_rotate($backupDir, 5);

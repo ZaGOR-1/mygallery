@@ -161,6 +161,17 @@ function check_php_version(): void
     );
 }
 
+function check_ini_settings(): void
+{
+    $memory_limit = ini_get('memory_limit');
+    assert_true($memory_limit !== false, 'memory_limit is false');
+    // Could do intval matching, but just verifying it's accessible
+    $max_file_uploads = ini_get('max_file_uploads');
+    assert_true($max_file_uploads !== false, 'max_file_uploads is false');
+    $post_max_size = ini_get('post_max_size');
+    assert_true($post_max_size !== false, 'post_max_size is false');
+}
+
 function check_config_files(): void
 {
     assert_true(is_file(project_root_path('config' . DIRECTORY_SEPARATOR . 'config.php')), 'config/config.php missing.');
@@ -314,5 +325,6 @@ check_gitkeep_files();
 check_database_schema();
 check_csrf_cases();
 check_orientation_cases();
+check_ini_settings();
 
 echo "Self-check passed.\n";

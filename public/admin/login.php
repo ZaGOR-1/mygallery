@@ -184,9 +184,7 @@ function dummy_password_hash(): string
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!verify_csrf()) {
-        $errors[] = 'Помилка CSRF-захисту. Оновіть сторінку і спробуйте ще раз.';
-    }
+    require_csrf();
 
     $username = trim((string) ($_POST['username'] ?? ''));
     $password = (string) ($_POST['password'] ?? '');
@@ -200,8 +198,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             cleanup_old_login_attempts();
             $lockSecondsLeft = login_lock_seconds_for($username, $ip);
-            if ($lockSecondsLeft > 0) {
-                $errors[] = 'Забагато невдалих спроб. Спробуйте ще раз через ' . $lockSecondsLeft . ' с.';
+            $captchaRequired = $lockSecondsLeft > 0;
+            
+            if ($captchaRequired) {
+                $captchaInput = (string) ($_POST['captcha'] ?? '');
+                $captchaExpected = (string) ($_SESSION['login_captcha'] ?? '');
+                
+                if ($captchaInput === '' || $captchaExpected === '' || $captchaInput !== $captchaExpected) {
+                    $errors[] = 'Забагато невдалих спроб. Будь ласка, розв\'яжіть математичну задачу.';
+                    $num1 = random_int(1, 10);
+                    $num2 = random_int(1, 10);
+                    $_SESSION['login_captcha'] = (string) ($num1 + $num2);
+                    $_SESSION['login_captcha_question'] = "$num1 + $num2";
+                } else {
+                    unset($_SESSION['login_captcha']);
+                    unset($_SESSION['login_captcha_question']);
+                    $lockSecondsLeft = 0; // Captcha solved, bypass time lock
+                }
+            }
+            
+            // Generate captcha for next time if they are just about to be locked out
+            if ($lockSecondsLeft === 0 && empty($errors)) {
+                unset($_SESSION['login_captcha']);
+                unset($_SESSION['login_captcha_question']);
             }
         } catch (Throwable $exception) {
             app_log_exception($exception, 'Login rate limit check failed');
@@ -252,6 +271,12 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             Пароль
             <input type="password" name="password" required autocomplete="current-password">
         </label>
+        <?php if (!empty($_SESSION['login_captcha_question'])): ?>
+            <label>
+                Скільки буде <?= h($_SESSION['login_captcha_question']) ?>? (Захист від спаму)
+                <input type="text" name="captcha" required autocomplete="off">
+            </label>
+        <?php endif; ?>
         <button class="button" type="submit">Увійти</button>
     </form>
 </section>

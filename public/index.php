@@ -37,16 +37,28 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
 ?>
 <section class="hero <?= $heroPhoto ? 'hero-with-photo' : 'hero-empty' ?>">
     <?php if ($heroPhoto): ?>
-        <img
-            class="hero-image"
-            src="<?= h(photo_display_url($heroPhoto)) ?>"
-            srcset="<?= h(photo_cover_srcset($heroPhoto)) ?>"
-            sizes="(max-width: 900px) 100vw, 1180px"
-            alt="<?= h($heroPhoto['title']) ?>"
-            width="1600"
-            height="900"
-            loading="eager"
-        >
+        <picture>
+            <?php
+            $avifSrcset = photo_cover_srcset_next_gen($heroPhoto, 'avif');
+            if ($avifSrcset !== ''): ?>
+                <source srcset="<?= h($avifSrcset) ?>" type="image/avif" sizes="(max-width: 900px) 100vw, 1180px">
+            <?php endif; ?>
+            <?php
+            $webpSrcset = photo_cover_srcset_next_gen($heroPhoto, 'webp');
+            if ($webpSrcset !== ''): ?>
+                <source srcset="<?= h($webpSrcset) ?>" type="image/webp" sizes="(max-width: 900px) 100vw, 1180px">
+            <?php endif; ?>
+            <img
+                class="hero-image"
+                src="<?= h(photo_display_url($heroPhoto)) ?>"
+                srcset="<?= h(photo_cover_srcset($heroPhoto)) ?>"
+                sizes="(max-width: 900px) 100vw, 1180px"
+                alt="<?= h($heroPhoto['title']) ?>"
+                width="1600"
+                height="900"
+                loading="eager"
+            >
+        </picture>
     <?php endif; ?>
     <div class="hero-content">
         <p class="eyebrow">JPEG · EXIF · приватні оригінали</p>
@@ -98,15 +110,27 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
         <?php foreach ($latestPhotos as $photo): ?>
             <article class="photo-card home-photo-card">
                 <a href="<?= h(url('photo.php?id=' . (int) $photo['id'])) ?>">
-                    <img
-                        src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
-                        srcset="<?= h(photo_responsive_srcset($photo)) ?>"
-                        sizes="<?= h(photo_card_sizes()) ?>"
-                        alt="<?= h($photo['title']) ?>"
-                        width="600"
-                        height="400"
-                        loading="lazy"
-                    >
+                    <picture>
+                        <?php
+                        $avifSrcset = photo_responsive_srcset_next_gen($photo, 'avif');
+                        if ($avifSrcset !== ''): ?>
+                            <source srcset="<?= h($avifSrcset) ?>" type="image/avif" sizes="<?= h(photo_card_sizes()) ?>">
+                        <?php endif; ?>
+                        <?php
+                        $webpSrcset = photo_responsive_srcset_next_gen($photo, 'webp');
+                        if ($webpSrcset !== ''): ?>
+                            <source srcset="<?= h($webpSrcset) ?>" type="image/webp" sizes="<?= h(photo_card_sizes()) ?>">
+                        <?php endif; ?>
+                        <img
+                            src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
+                            srcset="<?= h(photo_responsive_srcset($photo)) ?>"
+                            sizes="<?= h(photo_card_sizes()) ?>"
+                            alt="<?= h($photo['title']) ?>"
+                            width="600"
+                            height="400"
+                            loading="lazy"
+                        >
+                    </picture>
                     <span><?= h($photo['title']) ?></span>
                 </a>
                 <p><?= h($photo['album_name'] ?: ($photo['taken_at'] ?: ($photo['camera_model'] ?: 'Немає даних'))) ?></p>

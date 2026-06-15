@@ -44,6 +44,7 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
     $thumbnailPath = null;
 
     try {
+        ini_set('memory_limit', '512M');
         $filename = random_photo_name();
         $thumbnailFilename = random_photo_name();
         $originalPath = originals_path($filename);
@@ -55,7 +56,13 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
         $exif = read_photo_exif($originalPath);
         [$width, $height] = oriented_image_dimensions((int) $imageInfo[0], (int) $imageInfo[1], $exif['orientation']);
         create_large_image($originalPath, $largePath, $exif['orientation']);
+        create_webp_copy($largePath);
+        create_avif_copy($largePath);
+
         create_thumbnail($originalPath, $thumbnailPath, $exif['orientation']);
+        create_webp_copy($thumbnailPath);
+        create_avif_copy($thumbnailPath);
+        $dominantColor = get_image_dominant_color($originalPath);
 
         $savedFileSize = is_file($originalPath) ? filesize($originalPath) : false;
         $exifJson = json_encode($exif['raw'], JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -88,9 +95,9 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
 
         $stmt = $pdo->prepare(
             'INSERT INTO photos
-            (album_id, filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json, original_sha256)
+            (album_id, filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json, original_sha256, dominant_color)
             VALUES
-            (:album_id, :filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json, :original_sha256)'
+            (:album_id, :filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json, :original_sha256, :dominant_color)'
         );
 
         $stmt->execute([
@@ -110,6 +117,7 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
             'taken_at' => $exif['taken_at'],
             'exif_json' => $exifJson === false ? null : $exifJson,
             'original_sha256' => $originalSha256,
+            'dominant_color' => $dominantColor,
         ]);
 
         $photoId = (int) $pdo->lastInsertId();
@@ -161,6 +169,21 @@ function update_photo_metadata(PDO $pdo, int $photoId, array $input): void
 
     try {
         $pdo->beginTransaction();
+        
+        $stmt = $pdo->prepare('SELECT album_id, updated_at FROM photos WHERE id = ? FOR UPDATE');
+        $stmt->execute([$photoId]);
+        $photoData = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$photoData) {
+            throw new InvalidArgumentException('Фотографію не знайдено.');
+        }
+
+        if (isset($input['updated_at']) && $input['updated_at'] !== '' && (string) $input['updated_at'] !== (string) $photoData['updated_at']) {
+            throw new InvalidArgumentException('Фотографію було змінено іншим адміністратором. Будь ласка, оновіть сторінку і спробуйте знову.');
+        }
+        
+        $oldAlbumId = $photoData['album_id'];
+        
         $stmt = $pdo->prepare('UPDATE photos SET album_id = :album_id, title = :title, description = :description WHERE id = :id');
         $stmt->execute([
             'album_id' => $albumId,
@@ -168,6 +191,12 @@ function update_photo_metadata(PDO $pdo, int $photoId, array $input): void
             'description' => $description,
             'id' => $photoId,
         ]);
+        
+        if ($oldAlbumId !== false && $oldAlbumId !== null && (int)$oldAlbumId !== $albumId) {
+            $stmtCover = $pdo->prepare('UPDATE albums SET cover_photo_id = NULL WHERE id = ? AND cover_photo_id = ?');
+            $stmtCover->execute([(int)$oldAlbumId, $photoId]);
+        }
+        
         sync_photo_tags($photoId, $tagNames);
         prune_unused_tags();
         $pdo->commit();
@@ -214,15 +243,9 @@ function delete_photo_with_trash(PDO $pdo, int $photoId, array $photo): void
         throw new RuntimeException($message, 0, $exception);
     }
 
-    $fileErrors = remove_trashed_photo_files($movedFiles);
-    if (!empty($fileErrors)) {
-        app_log('Delete cleanup warning: ' . implode(' ', $fileErrors));
-        // We throw an exception but specify it's a warning so the caller can handle it
-        throw new RuntimeException('Запис із бази видалено, але частину тимчасових файлів не вдалося прибрати. Деталі записано в лог.');
-    }
 }
 
-function update_album_with_validation(PDO $pdo, int $albumId, string $newName, ?int $coverPhotoId = null): void
+function update_album_with_validation(PDO $pdo, int $albumId, string $newName, ?int $coverPhotoId = null, int $isPrivate = 0): void
 {
     $newName = clean_album_name($newName);
     if ($newName === '') {
@@ -241,8 +264,8 @@ function update_album_with_validation(PDO $pdo, int $albumId, string $newName, ?
         }
     }
 
-    $stmt = $pdo->prepare('UPDATE albums SET name = :name, cover_photo_id = :cover_photo_id WHERE id = :id');
-    $stmt->execute(['name' => $newName, 'cover_photo_id' => $coverPhotoId, 'id' => $albumId]);
+    $stmt = $pdo->prepare('UPDATE albums SET name = :name, cover_photo_id = :cover_photo_id, is_private = :is_private WHERE id = :id');
+    $stmt->execute(['name' => $newName, 'cover_photo_id' => $coverPhotoId, 'is_private' => $isPrivate, 'id' => $albumId]);
 }
 
 function delete_album_with_validation(PDO $pdo, int $albumId): void
@@ -266,3 +289,213 @@ function delete_album_with_validation(PDO $pdo, int $albumId): void
         throw clone $exception;
     }
 }
+
+function restore_photo_from_trash(PDO $pdo, string $operationId): void
+{
+    $manifestPath = trash_path($operationId . '.json');
+    if (!is_file($manifestPath)) {
+        throw new InvalidArgumentException('Журнал видалення не знайдено.');
+    }
+
+    $manifest = json_decode((string) file_get_contents($manifestPath), true);
+    if (!is_array($manifest)) {
+        throw new RuntimeException('Некоректний журнал видалення.');
+    }
+
+    $photoData = $manifest['photo_data'] ?? null;
+    if (!$photoData) {
+        throw new RuntimeException('У журналі немає метаданих фотографії для відновлення.');
+    }
+
+    $files = $manifest['files'] ?? [];
+    
+    // Check if all files in trash exist before moving them back
+    foreach ($files as $file) {
+        $resolved = resolve_trash_manifest_entry((array) $file);
+        if ($resolved === null || !is_file($resolved['trash'])) {
+            throw new RuntimeException('Частина файлів у кошику відсутня. Відновлення неможливе.');
+        }
+    }
+
+    // Move files back
+    $movedBack = [];
+    try {
+        foreach ($files as $file) {
+            $resolved = resolve_trash_manifest_entry((array) $file);
+            if (!rename($resolved['trash'], $resolved['from'])) {
+                throw new RuntimeException('Не вдалося перемістити файл із кошика: ' . basename($resolved['from']));
+            }
+            $movedBack[] = $resolved;
+        }
+
+        $pdo->beginTransaction();
+
+        // Check album exists
+        $albumId = isset($photoData['album_id']) ? (int) $photoData['album_id'] : null;
+        if ($albumId !== null && !album_exists($albumId)) {
+            $albumId = null;
+        }
+
+        $stmt = $pdo->prepare(
+            'INSERT INTO photos
+            (id, album_id, filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json, original_sha256, dominant_color, created_at)
+            VALUES
+            (:id, :album_id, :filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json, :original_sha256, :dominant_color, :created_at)'
+        );
+
+        $stmt->execute([
+            'id' => (int) $photoData['id'],
+            'album_id' => $albumId,
+            'filename' => $photoData['filename'],
+            'thumbnail_filename' => $photoData['thumbnail_filename'],
+            'original_name' => $photoData['original_name'],
+            'title' => $photoData['title'],
+            'description' => $photoData['description'],
+            'mime_type' => $photoData['mime_type'],
+            'file_size' => (int) $photoData['file_size'],
+            'width' => isset($photoData['width']) ? (int) $photoData['width'] : null,
+            'height' => isset($photoData['height']) ? (int) $photoData['height'] : null,
+            'camera_make' => $photoData['camera_make'] ?? null,
+            'camera_model' => $photoData['camera_model'] ?? null,
+            'lens_model' => $photoData['lens_model'] ?? null,
+            'taken_at' => $photoData['taken_at'] ?? null,
+            'exif_json' => $photoData['exif_json'] ?? null,
+            'original_sha256' => $photoData['original_sha256'] ?? null,
+            'dominant_color' => $photoData['dominant_color'] ?? null,
+            'created_at' => $photoData['created_at'],
+        ]);
+
+        // Restore tags
+        $tags = $manifest['tags'] ?? [];
+        sync_photo_tags((int) $photoData['id'], $tags);
+
+        $pdo->commit();
+
+        // Delete manifest file
+        @unlink($manifestPath);
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        // Rollback moved files back to trash
+        foreach ($movedBack as $file) {
+            @rename($file['from'], $file['trash']);
+        }
+        throw $exception;
+    }
+}
+
+function purge_photo_from_trash(string $operationId): void
+{
+    $manifestPath = trash_path($operationId . '.json');
+    if (!is_file($manifestPath)) {
+        throw new InvalidArgumentException('Журнал видалення не знайдено.');
+    }
+
+    $manifest = json_decode((string) file_get_contents($manifestPath), true);
+    if (!is_array($manifest)) {
+        throw new RuntimeException('Некоректний журнал видалення.');
+    }
+
+    $files = $manifest['files'] ?? [];
+    $errors = [];
+
+    foreach ($files as $file) {
+        $resolved = resolve_trash_manifest_entry((array) $file);
+        if ($resolved !== null && is_file($resolved['trash'])) {
+            if (!@unlink($resolved['trash'])) {
+                $errors[] = 'Не вдалося видалити файл ' . basename($resolved['trash']) . '.';
+            }
+        }
+    }
+
+    if (!@unlink($manifestPath)) {
+        $errors[] = 'Не вдалося видалити файл журналу.';
+    }
+
+    if (!empty($errors)) {
+        throw new RuntimeException(implode(' ', $errors));
+    }
+}
+
+function purge_all_trash(): void
+{
+    $manifests = glob(trash_path('*.json')) ?: [];
+    $errors = [];
+
+    foreach ($manifests as $manifestPath) {
+        $operationId = pathinfo($manifestPath, PATHINFO_FILENAME);
+        try {
+            purge_photo_from_trash($operationId);
+        } catch (Throwable $e) {
+            $errors[] = $e->getMessage();
+        }
+    }
+
+    if (!empty($errors)) {
+        throw new RuntimeException('Деякі файли не вдалося видалити: ' . implode(' ', $errors));
+    }
+}
+
+function reorder_album(PDO $pdo, int $albumId, string $direction): void
+{
+    if ($direction !== 'up' && $direction !== 'down') {
+        throw new InvalidArgumentException('Некоректний напрямок сортування.');
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        $stmt = $pdo->query('SELECT id, sort_order FROM albums ORDER BY sort_order ASC, name ASC');
+        $albumsList = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $targetIndex = -1;
+        $currentOrder = 10;
+
+        // Normalize sort order sequentially
+        foreach ($albumsList as $index => $album) {
+            $albumsList[$index]['sort_order'] = $currentOrder;
+            if ((int) $album['id'] === $albumId) {
+                $targetIndex = $index;
+            }
+            $currentOrder += 10;
+        }
+
+        if ($targetIndex === -1) {
+            throw new InvalidArgumentException('Альбом не знайдено.');
+        }
+
+        // Apply normalized orders to all first to ensure no conflicts
+        $stmtUpdate = $pdo->prepare('UPDATE albums SET sort_order = ? WHERE id = ?');
+        foreach ($albumsList as $album) {
+            $stmtUpdate->execute([$album['sort_order'], $album['id']]);
+        }
+
+        // Perform swap
+        if ($direction === 'up' && $targetIndex > 0) {
+            $prevIndex = $targetIndex - 1;
+            $temp = $albumsList[$targetIndex]['sort_order'];
+            $albumsList[$targetIndex]['sort_order'] = $albumsList[$prevIndex]['sort_order'];
+            $albumsList[$prevIndex]['sort_order'] = $temp;
+
+            $stmtUpdate->execute([$albumsList[$targetIndex]['sort_order'], $albumsList[$targetIndex]['id']]);
+            $stmtUpdate->execute([$albumsList[$prevIndex]['sort_order'], $albumsList[$prevIndex]['id']]);
+        } elseif ($direction === 'down' && $targetIndex < count($albumsList) - 1) {
+            $nextIndex = $targetIndex + 1;
+            $temp = $albumsList[$targetIndex]['sort_order'];
+            $albumsList[$targetIndex]['sort_order'] = $albumsList[$nextIndex]['sort_order'];
+            $albumsList[$nextIndex]['sort_order'] = $temp;
+
+            $stmtUpdate->execute([$albumsList[$targetIndex]['sort_order'], $albumsList[$targetIndex]['id']]);
+            $stmtUpdate->execute([$albumsList[$nextIndex]['sort_order'], $albumsList[$nextIndex]['id']]);
+        }
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
+}
+

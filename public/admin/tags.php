@@ -13,9 +13,7 @@ $editingTagId = get_tag_id_from_request('edit');
 $editingTag = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!verify_csrf()) {
-        $errors[] = 'Помилка CSRF-захисту. Оновіть сторінку і спробуйте ще раз.';
-    }
+    require_csrf();
 
     $action = (string) ($_POST['action'] ?? '');
 

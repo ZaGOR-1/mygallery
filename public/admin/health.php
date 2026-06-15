@@ -98,8 +98,9 @@ $runtimeRows[] = health_row('memory_limit', 'ok', (string) ini_get('memory_limit
 
 $extensionRows = [];
 foreach (required_php_extensions() as $extension) {
-    $extensionRows[] = health_row($extension, extension_loaded($extension) ? 'ok' : 'error', extension_loaded($extension) ? 'loaded' : 'missing');
 }
+$extensionRows[] = health_row('GD WebP support', function_exists('imagewebp') ? 'ok' : 'warn', function_exists('imagewebp') ? 'enabled' : 'missing (no next-gen WebP)');
+$extensionRows[] = health_row('GD AVIF support', function_exists('imageavif') ? 'ok' : 'warn', function_exists('imageavif') ? 'enabled' : 'missing (no next-gen AVIF)');
 
 $directoryRows = [];
 foreach ([

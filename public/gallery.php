@@ -65,71 +65,103 @@ try {
 
 require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php';
 ?>
-<section class="page-title">
-    <h1>Галерея</h1>
-    <p>Знайдено <?= h((string) $totalPhotos) ?> фото. Сторінка <?= h((string) $page) ?> з <?= h((string) $totalPages) ?>.</p>
+<?php
+$selectedAlbumName = null;
+if ($albumId !== null) {
+    try {
+        $stmt = db()->prepare('SELECT name FROM albums WHERE id = ?');
+        $stmt->execute([$albumId]);
+        $albumRow = $stmt->fetch();
+        if ($albumRow) {
+            $selectedAlbumName = (string) $albumRow['name'];
+        }
+    } catch (Throwable $e) {
+        // Ignore
+    }
+}
+?>
+<section class="<?= ($albumId !== null && $totalPhotos > 0) ? 'page-title-has-actions' : 'page-title' ?>">
+    <div>
+        <h1><?= h($selectedAlbumName ?? 'Галерея') ?></h1>
+        <p>Знайдено <?= h((string) $totalPhotos) ?> фото. Сторінка <?= h((string) $page) ?> з <?= h((string) $totalPages) ?>.</p>
+    </div>
+    <?php if ($albumId !== null && $totalPhotos > 0): ?>
+        <div class="page-title-actions">
+            <?php if ($isSharedView): ?>
+                <a class="button" href="<?= h(url('download_album.php?token=' . urlencode($token))) ?>">Завантажити альбом (ZIP)</a>
+            <?php else: ?>
+                <a class="button" href="<?= h(url('download_album.php?album_id=' . (int) $albumId)) ?>">Завантажити альбом (ZIP)</a>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
 </section>
 
 <?php if (!$isSharedView): ?>
-<form class="filter-panel" method="get" action="<?= h(url('gallery.php')) ?>">
-    <label>
-        Пошук
-        <input type="search" name="q" value="<?= h($search) ?>" placeholder="Назва або опис">
-    </label>
-    <label>
-        Камера
-        <select name="camera">
-            <option value="">Усі камери</option>
-            <?php foreach ($cameraOptions as $cameraOption): ?>
-                <option value="<?= h((string) $cameraOption) ?>" <?= (string) $cameraOption === $camera ? 'selected' : '' ?>><?= h((string) $cameraOption) ?></option>
-            <?php endforeach; ?>
-        </select>
-    </label>
-    <label>
-        Альбом
-        <select name="album_id">
-            <option value="">Усі альбоми</option>
-            <?php foreach ($albumOptions as $album): ?>
-                <option value="<?= h((string) $album['id']) ?>" <?= (int) $album['id'] === $albumId ? 'selected' : '' ?>>
-                    <?= h($album['name'] . ' (' . (int) $album['photo_count'] . ')') ?>
-                </option>
-            <?php endforeach; ?>
-        </select>
-    </label>
-    <label>
-        Тег
-        <select name="tag_id">
-            <option value="">Усі теги</option>
-            <?php foreach ($tagOptions as $tag): ?>
-                <option value="<?= h((string) $tag['id']) ?>" <?= (int) $tag['id'] === $tagId ? 'selected' : '' ?>>
-                    <?= h($tag['name'] . ' (' . (int) $tag['photo_count'] . ')') ?>
-                </option>
-            <?php endforeach; ?>
-        </select>
-    </label>
-    <label>
-        Від дати зйомки
-        <input type="date" name="date_from" value="<?= h($dateFrom) ?>">
-    </label>
-    <label>
-        До дати зйомки
-        <input type="date" name="date_to" value="<?= h($dateTo) ?>">
-    </label>
-    <label>
-        Сортування
-        <select name="sort">
-            <?php foreach ($sortOptions as $sortValue => $sortLabel): ?>
-                <option value="<?= h($sortValue) ?>" <?= $sortValue === $sort ? 'selected' : '' ?>><?= h($sortLabel) ?></option>
-            <?php endforeach; ?>
-        </select>
-    </label>
-    <div class="filter-actions">
-        <button class="button" type="submit">Застосувати</button>
-        <?php if ($hasFilters): ?>
-            <a class="button secondary" href="<?= h(url('gallery.php')) ?>">Скинути</a>
-        <?php endif; ?>
-    </div>
-</form>
+<details class="filter-drawer" <?= $hasFilters ? 'open' : '' ?>>
+    <summary class="filter-drawer-summary">
+        <span>Пошук та фільтри</span>
+        <span class="filter-badge"><?= $hasFilters ? '· Активні' : '' ?></span>
+    </summary>
+    <form class="filter-panel-inner" method="get" action="<?= h(url('gallery.php')) ?>">
+        <label>
+            Пошук
+            <input type="search" name="q" value="<?= h($search) ?>" placeholder="Назва або опис">
+        </label>
+        <label>
+            Камера
+            <select name="camera">
+                <option value="">Усі камери</option>
+                <?php foreach ($cameraOptions as $cameraOption): ?>
+                    <option value="<?= h((string) $cameraOption) ?>" <?= (string) $cameraOption === $camera ? 'selected' : '' ?>><?= h((string) $cameraOption) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>
+            Альбом
+            <select name="album_id">
+                <option value="">Усі альбоми</option>
+                <?php foreach ($albumOptions as $album): ?>
+                    <option value="<?= h((string) $album['id']) ?>" <?= (int) $album['id'] === $albumId ? 'selected' : '' ?>>
+                        <?= h($album['name'] . ' (' . (int) $album['photo_count'] . ')') ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>
+            Тег
+            <select name="tag_id">
+                <option value="">Усі теги</option>
+                <?php foreach ($tagOptions as $tag): ?>
+                    <option value="<?= h((string) $tag['id']) ?>" <?= (int) $tag['id'] === $tagId ? 'selected' : '' ?>>
+                        <?= h($tag['name'] . ' (' . (int) $tag['photo_count'] . ')') ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>
+            Від дати зйомки
+            <input type="date" name="date_from" value="<?= h($dateFrom) ?>">
+        </label>
+        <label>
+            До дати зйомки
+            <input type="date" name="date_to" value="<?= h($dateTo) ?>">
+        </label>
+        <label>
+            Сортування
+            <select name="sort">
+                <?php foreach ($sortOptions as $sortValue => $sortLabel): ?>
+                    <option value="<?= h($sortValue) ?>" <?= $sortValue === $sort ? 'selected' : '' ?>><?= h($sortLabel) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <div class="filter-actions">
+            <button class="button" type="submit">Застосувати</button>
+            <?php if ($hasFilters): ?>
+                <a class="button secondary" href="<?= h(url('gallery.php')) ?>">Скинути</a>
+            <?php endif; ?>
+        </div>
+    </form>
+</details>
 <?php endif; ?>
 
 <?php if (empty($photos)): ?>
@@ -143,15 +175,29 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
                 <?php else: ?>
                     <a href="<?= h(url('photo.php?id=' . (int) $photo['id'])) ?>">
                 <?php endif; ?>
-                    <img
-                        src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
-                        srcset="<?= h(photo_responsive_srcset($photo)) ?>"
-                        sizes="<?= h(photo_card_sizes()) ?>"
-                        alt="<?= h($photo['title']) ?>"
-                        width="600"
-                        height="400"
-                        loading="lazy"
-                    >
+                    <picture>
+                        <?php
+                        $avifSrcset = photo_responsive_srcset_next_gen($photo, 'avif');
+                        if ($avifSrcset !== ''): ?>
+                            <source srcset="<?= h($avifSrcset) ?>" type="image/avif" sizes="<?= h(photo_card_sizes()) ?>">
+                        <?php endif; ?>
+                        <?php
+                        $webpSrcset = photo_responsive_srcset_next_gen($photo, 'webp');
+                        if ($webpSrcset !== ''): ?>
+                            <source srcset="<?= h($webpSrcset) ?>" type="image/webp" sizes="<?= h(photo_card_sizes()) ?>">
+                        <?php endif; ?>
+                        <img
+                            data-dominant-color="<?= h((string) ($photo['dominant_color'] ?? '')) ?>"
+                            src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
+                            srcset="<?= h(photo_responsive_srcset($photo)) ?>"
+                            sizes="<?= h(photo_card_sizes()) ?>"
+                            alt="<?= h($photo['title']) ?>"
+                            width="600"
+                            height="400"
+                            loading="lazy"
+                            onerror="this.style.opacity=0"
+                        >
+                    </picture>
                     <span><?= h($photo['title']) ?></span>
                 </a>
                 <p><?= h($photo['album_name'] ?: ($photo['taken_at'] ?: ($photo['camera_model'] ?: 'Немає даних'))) ?></p>
