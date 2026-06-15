@@ -4,30 +4,19 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 
+$isSharedView = $isSharedView ?? false;
+
 $pageTitle = 'Галерея - ' . app_name();
 $perPage = (int) app_config()['PHOTOS_PER_PAGE'];
-$page = max(1, get_int('page') ?? 1);
-$offset = ($page - 1) * $perPage;
-$photos = [];
-$cameraOptions = [];
-$albumOptions = [];
-$tagOptions = [];
-$tagsByPhoto = [];
-$totalPhotos = 0;
-$totalPages = 1;
-$search = get_query_string('q', 120);
-$camera = get_query_string('camera', 150);
-$albumId = get_album_id_from_request('album_id');
-$tagId = get_tag_id_from_request('tag_id');
-$dateFrom = get_query_string('date_from', 10);
-$dateTo = get_query_string('date_to', 10);
-$sort = get_query_string('sort', 30);
-$dateFrom = normalize_date_query($dateFrom);
-$dateTo = normalize_date_query($dateTo);
-
-if ($dateFrom !== '' && $dateTo !== '' && $dateFrom > $dateTo) {
-    [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
-}
+$filters = normalize_gallery_filters($_GET);
+$page = $filters['page'];
+$search = $filters['q'];
+$camera = $filters['camera'];
+$albumId = $filters['album_id'];
+$tagId = $filters['tag_id'];
+$dateFrom = $filters['date_from'];
+$dateTo = $filters['date_to'];
+$sort = $filters['sort'];
 
 $sortOptions = [
     'newest' => 'Новіші спочатку',
@@ -37,15 +26,7 @@ $sortOptions = [
     'title_az' => 'Назва: А-Я',
     'title_za' => 'Назва: Я-А',
 ];
-$sortSql = [
-    'newest' => 'photos.created_at DESC, photos.id DESC',
-    'oldest' => 'photos.created_at ASC, photos.id ASC',
-    'taken_newest' => 'photos.taken_at IS NULL ASC, photos.taken_at DESC, photos.created_at DESC, photos.id DESC',
-    'taken_oldest' => 'photos.taken_at IS NULL ASC, photos.taken_at ASC, photos.created_at ASC, photos.id ASC',
-    'title_az' => 'photos.title ASC, photos.id ASC',
-    'title_za' => 'photos.title DESC, photos.id DESC',
-];
-$sort = array_key_exists($sort, $sortOptions) ? $sort : 'newest';
+
 $filterParams = [
     'q' => $search,
     'camera' => $camera,
@@ -57,73 +38,26 @@ $filterParams = [
 ];
 $hasFilters = $search !== '' || $camera !== '' || $albumId !== null || $tagId !== null || $dateFrom !== '' || $dateTo !== '' || $sort !== 'newest';
 
+$photos = [];
+$cameraOptions = [];
+$albumOptions = [];
+$tagOptions = [];
+$tagsByPhoto = [];
+$totalPhotos = 0;
+$totalPages = 1;
+
 try {
-    $albumOptions = get_album_options(true);
-    $tagOptions = get_tag_options(true);
-    $cameraOptions = db()
-        ->query("SELECT DISTINCT camera_model FROM photos WHERE camera_model IS NOT NULL AND camera_model <> '' ORDER BY camera_model ASC")
-        ->fetchAll(PDO::FETCH_COLUMN);
+    $options = fetch_filter_options(db());
+    $albumOptions = $options['albums'];
+    $tagOptions = $options['tags'];
+    $cameraOptions = $options['cameras'];
 
-    $where = [];
-    $params = [];
-
-    $searchCondition = photo_search_condition($search, false, $params);
-    if ($searchCondition !== '') {
-        $where[] = $searchCondition;
-    }
-
-    if ($camera !== '') {
-        $where[] = 'photos.camera_model = :camera';
-        $params['camera'] = $camera;
-    }
-
-    if ($albumId !== null) {
-        $where[] = 'photos.album_id = :album_id';
-        $params['album_id'] = $albumId;
-    }
-
-    $joinSql = '';
-    if ($tagId !== null) {
-        $joinSql = ' INNER JOIN photo_tags photo_tags_filter ON photo_tags_filter.photo_id = photos.id AND photo_tags_filter.tag_id = :tag_id';
-        $params['tag_id'] = $tagId;
-    }
-
-    if ($dateFrom !== '') {
-        $where[] = 'photos.taken_at >= :date_from';
-        $params['date_from'] = $dateFrom . ' 00:00:00';
-    }
-
-    if ($dateTo !== '') {
-        $where[] = 'photos.taken_at <= :date_to';
-        $params['date_to'] = $dateTo . ' 23:59:59';
-    }
-
-    $whereSql = empty($where) ? '' : ' WHERE ' . implode(' AND ', $where);
-
-    $countStmt = db()->prepare('SELECT COUNT(DISTINCT photos.id) FROM photos' . $joinSql . $whereSql);
-    foreach ($params as $key => $value) {
-        $countStmt->bindValue(':' . $key, $value);
-    }
-    $countStmt->execute();
-    $totalPhotos = (int) $countStmt->fetchColumn();
+    $totalPhotos = count_photos(db(), $filters, false);
     $totalPages = max(1, (int) ceil($totalPhotos / $perPage));
     $page = min($page, $totalPages);
     $offset = ($page - 1) * $perPage;
 
-    $stmt = db()->prepare(
-        'SELECT photos.id, photos.filename, photos.thumbnail_filename, photos.width, photos.title, photos.camera_model, photos.taken_at, albums.name AS album_name
-        FROM photos
-        LEFT JOIN albums ON albums.id = photos.album_id' . $joinSql . $whereSql . '
-        ORDER BY ' . $sortSql[$sort] . '
-        LIMIT :limit OFFSET :offset'
-    );
-    foreach ($params as $key => $value) {
-        $stmt->bindValue(':' . $key, $value);
-    }
-    $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
-    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-    $stmt->execute();
-    $photos = $stmt->fetchAll();
+    $photos = fetch_photos(db(), $filters, $perPage, $offset, false);
     $tagsByPhoto = get_photo_tags_map(array_column($photos, 'id'));
 } catch (Throwable $exception) {
     app_http_error('Не вдалося завантажити галерею. Перевірте підключення до бази даних.', 500, $exception);
@@ -136,6 +70,7 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
     <p>Знайдено <?= h((string) $totalPhotos) ?> фото. Сторінка <?= h((string) $page) ?> з <?= h((string) $totalPages) ?>.</p>
 </section>
 
+<?php if (!$isSharedView): ?>
 <form class="filter-panel" method="get" action="<?= h(url('gallery.php')) ?>">
     <label>
         Пошук
@@ -195,6 +130,7 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
         <?php endif; ?>
     </div>
 </form>
+<?php endif; ?>
 
 <?php if (empty($photos)): ?>
     <p class="empty-state"><?= $hasFilters ? 'За цими фільтрами фотографій не знайдено.' : 'Фотографій поки немає.' ?></p>
@@ -202,7 +138,11 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
     <div class="gallery-grid">
         <?php foreach ($photos as $photo): ?>
             <article class="photo-card">
-                <a href="<?= h(url('photo.php?id=' . (int) $photo['id'])) ?>">
+                <?php if ($isSharedView): ?>
+                    <a href="<?= h(url('share.php?token=' . $token . '&view_photo=' . (int) $photo['id'])) ?>">
+                <?php else: ?>
+                    <a href="<?= h(url('photo.php?id=' . (int) $photo['id'])) ?>">
+                <?php endif; ?>
                     <img
                         src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
                         srcset="<?= h(photo_responsive_srcset($photo)) ?>"
@@ -219,7 +159,11 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
                 <?php if (!empty($photoTags)): ?>
                     <div class="tag-list card-tags" aria-label="Теги фотографії">
                         <?php foreach ($photoTags as $tag): ?>
-                            <a class="tag-pill" href="<?= h(url('gallery.php?tag_id=' . (int) $tag['id'])) ?>"><?= h($tag['name']) ?></a>
+                            <?php if ($isSharedView): ?>
+                                <span class="tag-pill" style="cursor: default; opacity: 0.8;"><?= h($tag['name']) ?></span>
+                            <?php else: ?>
+                                <a class="tag-pill" href="<?= h(url('gallery.php?tag_id=' . (int) $tag['id'])) ?>"><?= h($tag['name']) ?></a>
+                            <?php endif; ?>
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
@@ -230,19 +174,33 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
     <?php if ($totalPages > 1): ?>
         <nav class="pagination" aria-label="Пагінація">
             <?php if ($page > 1): ?>
-                <a href="<?= h(url_with_query('gallery.php', array_merge($filterParams, ['page' => $page - 1]))) ?>">Назад</a>
+                <?php if ($isSharedView): ?>
+                    <a href="<?= h(url('share.php?token=' . $token . '&page=' . ($page - 1))) ?>">Назад</a>
+                <?php else: ?>
+                    <a href="<?= h(url_with_query('gallery.php', array_merge($filterParams, ['page' => $page - 1]))) ?>">Назад</a>
+                <?php endif; ?>
             <?php endif; ?>
 
             <?php foreach (pagination_window($page, $totalPages) as $i): ?>
                 <?php if ($i === null): ?>
                     <span class="pagination-gap">…</span>
+                <?php elseif ($i === $page): ?>
+                    <strong aria-current="page"><?= h((string) $i) ?></strong>
                 <?php else: ?>
-                    <a class="<?= $i === $page ? 'active' : '' ?>" href="<?= h(url_with_query('gallery.php', array_merge($filterParams, ['page' => $i]))) ?>"><?= h((string) $i) ?></a>
+                    <?php if ($isSharedView): ?>
+                        <a href="<?= h(url('share.php?token=' . $token . '&page=' . $i)) ?>"><?= h((string) $i) ?></a>
+                    <?php else: ?>
+                        <a href="<?= h(url_with_query('gallery.php', array_merge($filterParams, ['page' => $i]))) ?>"><?= h((string) $i) ?></a>
+                    <?php endif; ?>
                 <?php endif; ?>
             <?php endforeach; ?>
 
             <?php if ($page < $totalPages): ?>
-                <a href="<?= h(url_with_query('gallery.php', array_merge($filterParams, ['page' => $page + 1]))) ?>">Вперед</a>
+                <?php if ($isSharedView): ?>
+                    <a href="<?= h(url('share.php?token=' . $token . '&page=' . ($page + 1))) ?>">Вперед</a>
+                <?php else: ?>
+                    <a href="<?= h(url_with_query('gallery.php', array_merge($filterParams, ['page' => $page + 1]))) ?>">Вперед</a>
+                <?php endif; ?>
             <?php endif; ?>
         </nav>
     <?php endif; ?>

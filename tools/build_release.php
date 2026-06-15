@@ -145,6 +145,10 @@ function release_forbidden_reason(string $entry): ?string
     return null;
 }
 
+if (defined('TESTING_RELEASE_EXCLUSIONS')) {
+    return;
+}
+
 if (!is_dir($distDir) && !mkdir($distDir, 0755, true)) {
     fwrite(STDERR, "Не вдалося створити папку dist.\n");
     exit(1);

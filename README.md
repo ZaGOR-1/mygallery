@@ -76,10 +76,9 @@ AGENTS.md                             правила для AI/Codex-агент�
 IMPLEMENTED_FEATURES.md               що вже реалізовано
 CHANGELOG.md                          історія змін версій
 docs/BUGS.md                          відомі обмеження і потенційні баги
-POST_MVP_ROADMAP.md                   майбутні задачі, не список уже реалізованого
-FIXES_APPLIED.md                      історія hardening-виправлень
-AUDIT_REPORT.md                       короткий підсумок останнього аудиту
-FULL_PROJECT_AUDIT.md                 детальний технічний аудит
+ROADMAP.md                            майбутні задачі, не список уже реалізованого
+docs/AUDIT_REPORT.md                  короткий підсумок останнього аудиту
+docs/SECURITY_AUDIT.md                детальний технічний аудит
 docs/AUDIT_PROMPT.md                  промпт для повторного аудиту AI-агентом
 BACKUP_RESTORE.md                     порядок backup і restore
 ```
@@ -288,6 +287,45 @@ sudo systemctl reload apache2
 
 Для роботи `.htaccess` має бути дозволено `AllowOverride All` або принаймні потрібні категорії `FileInfo`/`Indexes`.
 
+## Nginx Server Block
+
+Якщо ви використовуєте Nginx, зверніть увагу, що файли `.htaccess` будуть проігноровані. Вам необхідно явно закрити доступ до `.php` файлів у директорії `uploads`, а також заборонити доступ до приватних тек.
+
+Приклад production-конфігурації для Nginx:
+
+```nginx
+server {
+    listen 80;
+    server_name gallery.example.com;
+    root /var/www/mygallery/public;
+    index index.php index.html;
+
+    # Блокуємо виконання PHP у папці uploads
+    location ^~ /uploads/ {
+        location ~ \.php$ {
+            deny all;
+        }
+    }
+
+    # Всі інші запити направляємо на index.php
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    # Забороняємо доступ до прихованих файлів (напр. .git, .env)
+    location ~ /\. {
+        deny all;
+    }
+}
+```
+
 ## Production-налаштування
 
 - `APP_ENV=production`;
@@ -373,6 +411,18 @@ php tools/recover_trash.php --apply
 php tools/recover_trash.php --apply --purge-deleted
 ```
 
+Очищення старих службових файлів (логи, сесії, кошик) старше 7-30 днів:
+
+```bash
+php tools/cleanup_runtime.php
+php tools/cleanup_runtime.php --apply
+```
+
+Для Linux production рекомендується додати це в `cron` для щоденного очищення:
+```bash
+0 3 * * * /usr/bin/php /var/www/mygallery/tools/cleanup_runtime.php --apply > /dev/null 2>&1
+```
+
 Регенерація optimized-зображень із приватних оригіналів:
 
 ```bash
@@ -432,17 +482,17 @@ Backup не можна зберігати всередині `public/` і не �
 
 ## Передача ZIP-архіву
 
-Не включайте в ZIP:
+> [!WARNING]
+> **НІКОЛИ не створюйте ZIP-архів робочої папки вручну!**
+> Ручне архівування може випадково злити ваші секрети (`config/database.php`), файли сесій, логів, а також приватні `.git` та `.env` файли або оригінали фотографій.
 
-- `.git/`;
-- `config/database.php`;
-- приватні фотографії зі `storage/originals`;
-- реальні файли з `public/uploads/large`, `public/uploads/thumbnails` і `public/uploads/originals`;
-- логи зі `storage/logs`;
-- session-файли зі `storage/sessions`;
-- backup/tmp/archive-файли.
+Замість ручного архівування **завжди використовуйте спеціальний CLI-інструмент**:
 
-Залишайте в архіві код, `config/database.example.php`, `database/schema.sql`, міграції, `.gitkeep`-файли і актуальні `.md` документи. Для цього використовуйте `php tools/build_release.php`, а не ручне архівування всієї робочої папки.
+```bash
+php tools/build_release.php
+```
+
+Цей скрипт безпечно скопіює тільки необхідний код, `.gitkeep`-файли, міграції та актуальні `.md` документи, та згенерує чистий релізний ZIP в папці `dist/`.
 
 ## Змінні середовища
 
@@ -465,11 +515,10 @@ DB_PASSWORD=strong_password
 ## Документація
 
 - `IMPLEMENTED_FEATURES.md` — що вже реалізовано і не треба повторно планувати в roadmap.
-- `POST_MVP_ROADMAP.md` — майбутні задачі, розбиті за пріоритетами.
+- `ROADMAP.md` — майбутні задачі, розбиті за пріоритетами.
 - `docs/BUGS.md` — відомі обмеження і потенційні баги.
-- `FIXES_APPLIED.md` — історія вже внесених hardening-виправлень.
-- `AUDIT_REPORT.md` — короткий підсумок останнього аудиту.
-- `FULL_PROJECT_AUDIT.md` — детальний аудит із findings і статусом виправлень.
+- `docs/AUDIT_REPORT.md` — короткий підсумок останнього аудиту.
+- `docs/SECURITY_AUDIT.md` — детальний технічний аудит.
 - `docs/AUDIT_PROMPT.md` — готовий промпт для повторного аудиту AI-агентом.
 - `BACKUP_RESTORE.md` — порядок backup і restore.
 - `AGENTS.md` — правила для AI/Codex-агента, який буде змінювати проєкт.

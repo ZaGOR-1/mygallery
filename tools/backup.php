@@ -171,7 +171,7 @@ try {
 $sql = "-- MyGallery backup\n";
 $sql .= "-- Created at: " . date('c') . "\n";
 $sql .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
-foreach (['admins', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts'] as $table) {
+foreach (['admins', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts', 'share_links'] as $table) {
     $sql .= export_table_sql($pdo, $table);
 }
 $sql .= "SET FOREIGN_KEY_CHECKS=1;\n";

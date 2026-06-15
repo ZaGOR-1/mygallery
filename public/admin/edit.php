@@ -14,9 +14,7 @@ if ($id === null || $id < 1) {
 }
 
 try {
-    $stmt = db()->prepare('SELECT * FROM photos WHERE id = :id');
-    $stmt->execute(['id' => $id]);
-    $photo = $stmt->fetch();
+    $photo = fetch_photo_by_id(db(), $id);
 } catch (Throwable $exception) {
     app_log_exception($exception, 'Edit fetch failed');
     set_flash('error', 'Не вдалося завантажити фотографію для редагування.');
@@ -44,22 +42,15 @@ try {
     $errors[] = 'Не вдалося завантажити список альбомів. Перевірте схему бази даних.';
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    try {
-        $selectedAlbumId = get_album_id_from_post('album_id');
-    } catch (InvalidArgumentException $exception) {
-        $selectedAlbumId = null;
-        $errors[] = $exception->getMessage();
-    }
+require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'photo_service.php';
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
     $tagsInput = (string) ($_POST['tags'] ?? '');
-
-    try {
-        $tagNames = parse_tags_input($tagsInput);
-    } catch (InvalidArgumentException $exception) {
-        $tagNames = [];
-        $errors[] = $exception->getMessage();
+    
+    $rawAlbumId = $_POST['album_id'] ?? null;
+    if ($rawAlbumId !== null && $rawAlbumId !== '') {
+        $selectedAlbumId = (int) $rawAlbumId;
     }
 
     if (!verify_csrf()) {
@@ -74,34 +65,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (empty($errors)) {
-        $pdo = db();
-
         try {
-            $pdo->beginTransaction();
-            $albumId = resolve_album_id_from_post();
-            $stmt = $pdo->prepare('UPDATE photos SET album_id = :album_id, title = :title, description = :description WHERE id = :id');
-            $stmt->execute([
-                'album_id' => $albumId,
-                'title' => text_limit($title, 255),
-                'description' => $description,
-                'id' => $id,
-            ]);
-            sync_photo_tags($id, $tagNames);
-            prune_unused_tags();
-            $pdo->commit();
-
+            update_photo_metadata(db(), $id, $_POST);
             set_flash('success', 'Фотографію оновлено.');
             redirect('admin/index.php');
+        } catch (InvalidArgumentException $exception) {
+            $errors[] = $exception->getMessage();
         } catch (Throwable $exception) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-
             app_log_exception($exception, 'Photo edit failed');
             $errors[] = 'Не вдалося оновити фотографію.';
         }
     }
 }
+
+$stmt = db()->prepare('SELECT id, token FROM share_links WHERE photo_id = ?');
+$stmt->execute([$id]);
+$shareLinks = $stmt->fetchAll();
 
 require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php';
 ?>
@@ -116,8 +95,9 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <img src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>" alt="<?= h($photo['title']) ?>" width="600" height="400">
     </div>
 
-    <form method="post" class="stacked-form">
+    <form method="post" action="<?= h(url('admin/edit.php')) ?>" class="stacked-form">
         <?= csrf_field() ?>
+        <input type="hidden" name="id" value="<?= h((string) $photo['id']) ?>">
         <label>
             Назва
             <input type="text" name="title" value="<?= h((string) ($title ?? $photo['title'])) ?>" maxlength="255" required>
@@ -147,4 +127,36 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <button class="button" type="submit">Зберегти</button>
     </form>
 </section>
+
+<section class="form-panel" style="margin-top: 2rem;">
+    <h2>Приватні посилання</h2>
+    <?php if ($shareLinks): ?>
+        <ul style="list-style: none; padding: 0;">
+        <?php foreach ($shareLinks as $link): ?>
+            <li style="margin-bottom: 1rem; padding: 1rem; background: var(--bg-hover); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+                <a href="<?= h(url('share.php?token=' . $link['token'])) ?>" target="_blank" style="word-break: break-all;">
+                    <?= h(url('share.php?token=' . $link['token'])) ?>
+                </a>
+                <form method="post" action="<?= h(url('admin/share.php')) ?>" style="display:inline;">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="revoke">
+                    <input type="hidden" name="id" value="<?= h((string)$link['id']) ?>">
+                    <input type="hidden" name="return_to" value="admin/edit.php?id=<?= h((string)$id) ?>">
+                    <button class="button button-danger" type="submit" onclick="return confirm('Видалити посилання?');">Відкликати</button>
+                </form>
+            </li>
+        <?php endforeach; ?>
+        </ul>
+    <?php else: ?>
+        <p>Немає активних приватних посилань для цього фото.</p>
+    <?php endif; ?>
+    
+    <form method="post" action="<?= h(url('admin/share.php')) ?>" style="margin-top: 1rem;">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="create_photo_share">
+        <input type="hidden" name="photo_id" value="<?= h((string)$id) ?>">
+        <button class="button button-secondary" type="submit">Створити нове посилання</button>
+    </form>
+</section>
+
 <?php require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'footer.php'; ?>

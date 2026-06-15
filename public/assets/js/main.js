@@ -1,4 +1,14 @@
 document.addEventListener('DOMContentLoaded', function () {
+    var selectAllPhotos = document.getElementById('select-all-photos');
+
+    if (selectAllPhotos) {
+        selectAllPhotos.addEventListener('change', function () {
+            document.querySelectorAll('.photo-checkbox').forEach(function (checkbox) {
+                checkbox.checked = selectAllPhotos.checked;
+            });
+        });
+    }
+
     document.querySelectorAll('form[data-confirm]').forEach(function (form) {
         form.addEventListener('submit', function (event) {
             var message = form.getAttribute('data-confirm') || 'Підтвердити дію?';

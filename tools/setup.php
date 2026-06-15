@@ -65,8 +65,7 @@ try {
 }
 
 if ($adminExists) {
-    echo "Адміністратор уже існує. Новий адміністратор не створювався.\n";
-    exit(0);
+    // Admin already exists, but we will proceed to check if they want to update the password.
 }
 
 $args = setup_positional_args($argv);
@@ -83,10 +82,28 @@ if (strlen($password) < 8) {
     exit(1);
 }
 
-$stmt = db()->prepare('INSERT INTO admins (username, password_hash) VALUES (:username, :password_hash)');
-$stmt->execute([
-    'username' => $username,
-    'password_hash' => password_hash($password, PASSWORD_DEFAULT),
-]);
+if ($adminExists) {
+    $stmt = db()->prepare('SELECT id FROM admins WHERE username = :username');
+    $stmt->execute(['username' => $username]);
+    $adminId = $stmt->fetchColumn();
 
-echo "Адміністратора створено. Тепер можна увійти в /admin/login.php.\n";
+    if ($adminId !== false) {
+        $stmt = db()->prepare('UPDATE admins SET password_hash = :password_hash, session_version = session_version + 1 WHERE id = :id');
+        $stmt->execute([
+            'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+            'id' => $adminId,
+        ]);
+        echo "Пароль адміністратора оновлено. Усі старі сесії скасовані.\n";
+        exit(0);
+    } else {
+        fwrite(STDERR, "Адміністратор уже існує, але з іншим логіном. Створення кількох адміністраторів не підтримується.\n");
+        exit(1);
+    }
+} else {
+    $stmt = db()->prepare('INSERT INTO admins (username, password_hash, session_version) VALUES (:username, :password_hash, 1)');
+    $stmt->execute([
+        'username' => $username,
+        'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+    ]);
+    echo "Адміністратора створено. Тепер можна увійти в /admin/login.php.\n";
+}

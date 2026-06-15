@@ -251,6 +251,58 @@ function check_gitkeep_files(): void
     }
 }
 
+function check_database_schema(): void
+{
+    try {
+        $pdo = db();
+    } catch (Throwable $e) {
+        throw new RuntimeException('Cannot connect to database: ' . $e->getMessage());
+    }
+
+    $requiredTables = ['admins', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts', 'share_links'];
+    foreach ($requiredTables as $table) {
+        $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($table));
+        assert_true($stmt->fetch() !== false, 'Database table missing: ' . $table);
+    }
+
+    $stmt = $pdo->prepare('SHOW INDEX FROM photos');
+    $stmt->execute();
+    $photoIndexes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $foundPhotoIndexes = [];
+    foreach ($photoIndexes as $index) {
+        $foundPhotoIndexes[$index['Key_name']] = $index['Index_type'];
+    }
+
+    assert_true(isset($foundPhotoIndexes['idx_photos_filename_unique']), 'Missing index idx_photos_filename_unique on photos');
+    assert_true(isset($foundPhotoIndexes['idx_photos_thumbnail_filename_unique']), 'Missing index idx_photos_thumbnail_filename_unique on photos');
+    assert_true(isset($foundPhotoIndexes['idx_photos_public_search_fulltext']) && $foundPhotoIndexes['idx_photos_public_search_fulltext'] === 'FULLTEXT', 'Missing FULLTEXT index idx_photos_public_search_fulltext on photos');
+    assert_true(isset($foundPhotoIndexes['idx_photos_admin_search_fulltext']) && $foundPhotoIndexes['idx_photos_admin_search_fulltext'] === 'FULLTEXT', 'Missing FULLTEXT index idx_photos_admin_search_fulltext on photos');
+
+    $stmt = $pdo->prepare('SHOW INDEX FROM tags');
+    $stmt->execute();
+    $tagIndexes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $foundTagIndexes = [];
+    foreach ($tagIndexes as $index) {
+        $foundTagIndexes[$index['Key_name']] = $index['Index_type'];
+    }
+
+    assert_true(isset($foundTagIndexes['idx_tags_name']), 'Missing index idx_tags_name on tags');
+    assert_true(isset($foundTagIndexes['idx_tags_slug']), 'Missing index idx_tags_slug on tags');
+
+    $stmt = $pdo->prepare('SHOW INDEX FROM login_attempts');
+    $stmt->execute();
+    $loginIndexes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $foundLoginIndexes = [];
+    foreach ($loginIndexes as $index) {
+        $foundLoginIndexes[$index['Key_name']] = $index['Index_type'];
+    }
+
+    assert_true(isset($foundLoginIndexes['idx_login_attempts_username_ip']), 'Missing index idx_login_attempts_username_ip on login_attempts');
+}
+
 check_php_version();
 check_required_extensions();
 check_config_files();
@@ -259,6 +311,7 @@ check_required_tool_files();
 check_writable_directories();
 check_upload_protection_files();
 check_gitkeep_files();
+check_database_schema();
 check_csrf_cases();
 check_orientation_cases();
 

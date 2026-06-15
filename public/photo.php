@@ -13,14 +13,7 @@ if ($id === null || $id < 1) {
 }
 
 try {
-    $stmt = db()->prepare(
-        'SELECT photos.*, albums.name AS album_name
-        FROM photos
-        LEFT JOIN albums ON albums.id = photos.album_id
-        WHERE photos.id = :id'
-    );
-    $stmt->execute(['id' => $id]);
-    $photo = $stmt->fetch();
+    $photo = fetch_photo_by_id(db(), $id);
 } catch (Throwable $exception) {
     app_http_error('Не вдалося завантажити фотографію.', 500, $exception);
 }

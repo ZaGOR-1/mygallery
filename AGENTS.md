@@ -29,7 +29,7 @@
 
 Використовуй:
 
-- PHP 8.2 або новіший;
+- PHP 8.4 або новіший (усі CLI-команди запускай через `C:\wamp64\bin\php\php8.4.0\php.exe`);
 - Apache 2.4;
 - MySQL 8.0 або MariaDB 10.6+;
 - PDO;
@@ -150,13 +150,12 @@ mygallery/
 ├── AGENTS.md
 ├── IMPLEMENTED_FEATURES.md
 ├── POST_MVP_ROADMAP.md
-├── FIXES_APPLIED.md
-├── AUDIT_REPORT.md
-├── FULL_PROJECT_AUDIT.md
 ├── BACKUP_RESTORE.md
 └── docs/
     ├── BUGS.md
-    └── AUDIT_PROMPT.md
+    ├── AUDIT_PROMPT.md
+    ├── AUDIT_REPORT.md
+    └── SECURITY_AUDIT.md
 ```
 
 ## Правила для upload
@@ -266,11 +265,8 @@ SQL-файли portable і не містять `USE my_photo_gallery;`. README-�
 - є idle timeout;
 - `admin_id` періодично перевіряється в БД;
 - сесія стартує fail-fast;
-- CSRF регенерується після login.
-
-Майбутнє P1-покращення:
-
-- за потреби додати `session_version` або `password_changed_at`, щоб старі сесії інвалідовувалися після зміни пароля.
+- CSRF регенерується після login;
+- реалізовано `session_version` для інвалідації старих сесій після зміни пароля.
 
 ## Delete і trash recovery
 
@@ -307,16 +303,15 @@ SQL-файли portable і не містять `USE my_photo_gallery;`. README-�
 - `IMPLEMENTED_FEATURES.md` — що вже зроблено.
 - `POST_MVP_ROADMAP.md` — тільки майбутні задачі.
 - `docs/BUGS.md` — відомі обмеження і потенційні баги.
-- `FIXES_APPLIED.md` — історія вже внесених виправлень.
-- `AUDIT_REPORT.md` — короткий актуальний summary аудиту.
-- `FULL_PROJECT_AUDIT.md` — детальний аудит із findings і статусом виправлень.
+- `docs/AUDIT_REPORT.md` — короткий актуальний summary аудиту.
+- `docs/SECURITY_AUDIT.md` — детальний аудит безпеки.
 - `docs/AUDIT_PROMPT.md` — промпт для повторного аудиту AI-агентом.
 - `BACKUP_RESTORE.md` — порядок backup і restore.
 
 Якщо реалізуєш пункт із roadmap:
 
-1. прибери або онови його в `POST_MVP_ROADMAP.md`;
-2. додай у `IMPLEMENTED_FEATURES.md`;
+1. прибери або онови його в `POST_MVP_ROADMAP.md` або `ROADMAP.md`;
+2. додай у `IMPLEMENTED_FEATURES.md` та `CHANGELOG.md`;
 3. якщо це виправлення ризику — онови `docs/BUGS.md`;
 4. якщо змінюється запуск або структура — онови `README.md`;
 5. якщо змінюються правила для майбутнього агента — онови `AGENTS.md`.

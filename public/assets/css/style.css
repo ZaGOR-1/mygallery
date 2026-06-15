@@ -468,8 +468,19 @@ button.button {
     border: 1px solid var(--line);
 }
 
+.form-panel h1 {
+    max-width: 100%;
+    font-size: clamp(28px, 4vw, 42px);
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+}
+
 .form-panel.narrow {
     max-width: 520px;
+}
+
+.form-panel.narrow h1 {
+    font-size: clamp(28px, 7vw, 44px);
 }
 
 .stacked-form {
@@ -499,6 +510,15 @@ textarea {
     color: var(--text);
     padding: 12px;
     font: inherit;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+    width: auto;
+    min-width: 16px;
+    min-height: 16px;
+    padding: 0;
+    accent-color: var(--accent);
 }
 
 input:focus,
@@ -612,13 +632,43 @@ textarea:focus {
     gap: 14px;
 }
 
+.bulk-edit-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+}
+
+.bulk-edit-bar label,
+.photo-checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+}
+
 .admin-item {
+    position: relative;
     display: grid;
     grid-template-columns: 140px 1fr auto;
     gap: 16px;
     align-items: center;
     padding: 14px;
     background: var(--panel);
+    border: 1px solid var(--line);
+}
+
+.photo-checkbox-label {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+    padding: 6px;
+    background: rgba(16, 16, 16, 0.82);
     border: 1px solid var(--line);
 }
 

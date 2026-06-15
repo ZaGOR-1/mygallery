@@ -1,0 +1,25 @@
+<?php
+
+declare(strict_types=1);
+
+// Test directory functions
+$rootPath = project_root_path();
+assert_true(is_dir($rootPath), 'Project root path should be a valid directory');
+assert_true(is_dir(public_path()), 'Public path should be a valid directory');
+assert_true(is_dir(storage_path()), 'Storage path should be a valid directory');
+
+// Test safe paths
+// They return null on invalid paths instead of throwing
+assert_equals(null, safe_upload_file_path('large', '../file.jpg'), 'Directory traversal should return null for upload paths');
+assert_equals(null, safe_storage_file_path('originals', '../file.jpg'), 'Directory traversal should return null for storage paths');
+assert_equals(null, safe_trash_file_path('../file.jpg'), 'Directory traversal should return null for trash paths');
+
+assert_equals(null, safe_upload_file_path('large', '/etc/passwd'), 'Absolute paths should return null');
+assert_equals(null, safe_upload_file_path('large', 'C:\\Windows\\System32\\cmd.exe'), 'Windows absolute paths should return null');
+
+// Normal valid path should not throw
+ensure_upload_folders();
+$validName = random_photo_name();
+$safePath = safe_upload_file_path('large', $validName);
+assert_true($safePath !== null, 'safe_upload_file_path should not return null for valid paths');
+assert_true(str_starts_with($safePath, public_path()), 'Safe upload path should be inside public path');

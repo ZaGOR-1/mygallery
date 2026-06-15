@@ -1,0 +1,26 @@
+name: Build Release Test
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.4'
+        extensions: mbstring, fileinfo, gd, pdo_mysql, exif
+
+    - name: Run Build Release Script
+      run: php tools/build_release.php
+      
+    - name: Verify Release ZIP
+      run: ls -la dist/mygallery_*_release.zip

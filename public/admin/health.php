@@ -120,7 +120,7 @@ try {
     db()->query('SELECT 1');
     $dbRows[] = health_row('DB connection', 'ok', 'SELECT 1 passed');
 
-    foreach (['admins', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts'] as $table) {
+    foreach (['admins', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts', 'share_links'] as $table) {
         $stmt = db()->query('SELECT COUNT(*) FROM `' . $table . '`');
         $dbRows[] = health_row('Table `' . $table . '`', 'ok', (string) $stmt->fetchColumn() . ' rows');
     }

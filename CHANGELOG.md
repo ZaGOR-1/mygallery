@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## v6.1.0
 
+- Implemented Tag Management Dashboard (`/admin/tags.php`) with rename, merge, delete, and prune functionality.
+- Implemented Bulk Edit feature allowing mass updates of albums and tags for multiple selected photos.
+- Implemented mass upload feature allowing multiple JPEG files to be uploaded simultaneously via the admin interface.
+- Implemented Album Covers: administrators can now select a cover photo for each album.
+- Created Public Albums Page (`/albums.php`) for easy navigation across albums, displaying covers and photo counts.
 - Blocked `tools/backup.php --output` paths inside `public/` so private backup ZIP files cannot be accidentally exposed by the web server.
 - Added trusted reverse proxy HTTPS detection through `TRUSTED_PROXIES` and `X-Forwarded-Proto: https`.
 - Updated admin health-check and README production notes for reverse proxy HTTPS.
@@ -10,6 +15,12 @@
 - Updated release ZIP documentation to use `dist/mygallery_<VERSION>_release.zip`.
 - Excluded empty legacy/non-runtime directories from clean release ZIP builds.
 - Expanded `POST_MVP_ROADMAP.md` with prioritized future feature candidates, complexity notes and verification steps.
+
+## v6.0.2
+
+- Patched a Zip Slip (Path Traversal) vulnerability in `tools/restore.php`.
+- Added the missing `share_links` table to `tools/backup.php`, `admin/health.php`, and `tools/self_check.php` to prevent data loss.
+- Fixed a `500 Internal Server Error` in `admin/index.php` and `gallery.php` caused by an incorrect column name `photos.filesize` (corrected to `photos.file_size`).
 
 ## v6.0.1
 

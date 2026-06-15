@@ -24,9 +24,11 @@ $flashMessages = get_flash_messages();
         <a class="logo" href="<?= h(url()) ?>"><?= h(app_name()) ?></a>
         <nav class="main-nav" aria-label="Головна навігація">
             <a href="<?= h(url('gallery.php')) ?>">Галерея</a>
+            <a href="<?= h(url('albums.php')) ?>">Всі альбоми</a>
             <?php if (is_admin_logged_in()): ?>
                 <a href="<?= h(url('admin/index.php')) ?>">Адмінпанель</a>
                 <a href="<?= h(url('admin/albums.php')) ?>">Альбоми</a>
+                <a href="<?= h(url('admin/tags.php')) ?>">Теги</a>
                 <a href="<?= h(url('admin/stats.php')) ?>">Статистика</a>
                 <a href="<?= h(url('admin/health.php')) ?>">Health</a>
                 <form class="logout-form" method="post" action="<?= h(url('admin/logout.php')) ?>">

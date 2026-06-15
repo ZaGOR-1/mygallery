@@ -29,7 +29,8 @@ function is_admin_logged_in(): bool
 
     if ($lastAdminCheck === 0 || (time() - $lastAdminCheck) > 60) {
         try {
-            if (!admin_exists($adminId)) {
+            $currentVersion = get_admin_session_version($adminId);
+            if ($currentVersion === null || $currentVersion !== (int) ($_SESSION['admin_session_version'] ?? 1)) {
                 logout_admin();
                 return false;
             }
@@ -63,6 +64,7 @@ function login_admin(array $admin): void
     session_regenerate_id(true);
     $_SESSION['admin_id'] = (int) $admin['id'];
     $_SESSION['admin_username'] = (string) $admin['username'];
+    $_SESSION['admin_session_version'] = (int) ($admin['session_version'] ?? 1);
     $_SESSION['admin_login_at'] = time();
     $_SESSION['admin_last_activity'] = time();
     $_SESSION['admin_checked_at'] = time();

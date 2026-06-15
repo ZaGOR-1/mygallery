@@ -8,29 +8,16 @@ require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPAR
 require_admin();
 
 $pageTitle = 'Адмінпанель - ' . app_name();
-$photos = [];
 $perPage = (int) app_config()['PHOTOS_PER_PAGE'];
-$page = max(1, get_int('page') ?? 1);
-$offset = ($page - 1) * $perPage;
-$totalPhotos = 0;
-$totalPages = 1;
-$cameraOptions = [];
-$albumOptions = [];
-$tagOptions = [];
-$tagsByPhoto = [];
-$search = get_query_string('q', 120);
-$camera = get_query_string('camera', 150);
-$albumId = get_album_id_from_request('album_id');
-$tagId = get_tag_id_from_request('tag_id');
-$dateFrom = get_query_string('date_from', 10);
-$dateTo = get_query_string('date_to', 10);
-$sort = get_query_string('sort', 30);
-$dateFrom = normalize_date_query($dateFrom);
-$dateTo = normalize_date_query($dateTo);
-
-if ($dateFrom !== '' && $dateTo !== '' && $dateFrom > $dateTo) {
-    [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
-}
+$filters = normalize_gallery_filters($_GET);
+$page = $filters['page'];
+$search = $filters['q'];
+$camera = $filters['camera'];
+$albumId = $filters['album_id'];
+$tagId = $filters['tag_id'];
+$dateFrom = $filters['date_from'];
+$dateTo = $filters['date_to'];
+$sort = $filters['sort'];
 
 $sortOptions = [
     'newest' => 'Новіші спочатку',
@@ -40,15 +27,7 @@ $sortOptions = [
     'title_az' => 'Назва: А-Я',
     'title_za' => 'Назва: Я-А',
 ];
-$sortSql = [
-    'newest' => 'photos.created_at DESC, photos.id DESC',
-    'oldest' => 'photos.created_at ASC, photos.id ASC',
-    'taken_newest' => 'photos.taken_at IS NULL ASC, photos.taken_at DESC, photos.created_at DESC, photos.id DESC',
-    'taken_oldest' => 'photos.taken_at IS NULL ASC, photos.taken_at ASC, photos.created_at ASC, photos.id ASC',
-    'title_az' => 'photos.title ASC, photos.id ASC',
-    'title_za' => 'photos.title DESC, photos.id DESC',
-];
-$sort = array_key_exists($sort, $sortOptions) ? $sort : 'newest';
+
 $filterParams = [
     'q' => $search,
     'camera' => $camera,
@@ -60,73 +39,26 @@ $filterParams = [
 ];
 $hasFilters = $search !== '' || $camera !== '' || $albumId !== null || $tagId !== null || $dateFrom !== '' || $dateTo !== '' || $sort !== 'newest';
 
+$photos = [];
+$cameraOptions = [];
+$albumOptions = [];
+$tagOptions = [];
+$tagsByPhoto = [];
+$totalPhotos = 0;
+$totalPages = 1;
+
 try {
-    $albumOptions = get_album_options(true);
-    $tagOptions = get_tag_options(true);
-    $cameraOptions = db()
-        ->query("SELECT DISTINCT camera_model FROM photos WHERE camera_model IS NOT NULL AND camera_model <> '' ORDER BY camera_model ASC")
-        ->fetchAll(PDO::FETCH_COLUMN);
+    $options = fetch_filter_options(db());
+    $albumOptions = $options['albums'];
+    $tagOptions = $options['tags'];
+    $cameraOptions = $options['cameras'];
 
-    $where = [];
-    $params = [];
-
-    $searchCondition = photo_search_condition($search, true, $params);
-    if ($searchCondition !== '') {
-        $where[] = $searchCondition;
-    }
-
-    if ($camera !== '') {
-        $where[] = 'photos.camera_model = :camera';
-        $params['camera'] = $camera;
-    }
-
-    if ($albumId !== null) {
-        $where[] = 'photos.album_id = :album_id';
-        $params['album_id'] = $albumId;
-    }
-
-    $joinSql = '';
-    if ($tagId !== null) {
-        $joinSql = ' INNER JOIN photo_tags photo_tags_filter ON photo_tags_filter.photo_id = photos.id AND photo_tags_filter.tag_id = :tag_id';
-        $params['tag_id'] = $tagId;
-    }
-
-    if ($dateFrom !== '') {
-        $where[] = 'photos.taken_at >= :date_from';
-        $params['date_from'] = $dateFrom . ' 00:00:00';
-    }
-
-    if ($dateTo !== '') {
-        $where[] = 'photos.taken_at <= :date_to';
-        $params['date_to'] = $dateTo . ' 23:59:59';
-    }
-
-    $whereSql = empty($where) ? '' : ' WHERE ' . implode(' AND ', $where);
-
-    $countStmt = db()->prepare('SELECT COUNT(DISTINCT photos.id) FROM photos' . $joinSql . $whereSql);
-    foreach ($params as $key => $value) {
-        $countStmt->bindValue(':' . $key, $value);
-    }
-    $countStmt->execute();
-    $totalPhotos = (int) $countStmt->fetchColumn();
+    $totalPhotos = count_photos(db(), $filters, true);
     $totalPages = max(1, (int) ceil($totalPhotos / $perPage));
     $page = min($page, $totalPages);
     $offset = ($page - 1) * $perPage;
 
-    $stmt = db()->prepare(
-        'SELECT photos.id, photos.filename, photos.thumbnail_filename, photos.width, photos.title, photos.original_name, photos.camera_model, photos.created_at, albums.name AS album_name
-        FROM photos
-        LEFT JOIN albums ON albums.id = photos.album_id' . $joinSql . $whereSql . '
-        ORDER BY ' . $sortSql[$sort] . '
-        LIMIT :limit OFFSET :offset'
-    );
-    foreach ($params as $key => $value) {
-        $stmt->bindValue(':' . $key, $value);
-    }
-    $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
-    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-    $stmt->execute();
-    $photos = $stmt->fetchAll();
+    $photos = fetch_photos(db(), $filters, $perPage, $offset, true);
     $tagsByPhoto = get_photo_tags_map(array_column($photos, 'id'));
 } catch (Throwable $exception) {
     app_http_error('Не вдалося завантажити список фотографій.', 500, $exception);
@@ -209,9 +141,21 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
 <?php if (empty($photos)): ?>
     <p class="empty-state"><?= $hasFilters ? 'За цими фільтрами фотографій не знайдено.' : 'Фотографій ще немає.' ?></p>
 <?php else: ?>
-    <div class="admin-list">
+    <form method="post" action="<?= h(url('admin/bulk_edit.php')) ?>" id="bulk-edit-form">
+        <?= csrf_field() ?>
+        <div class="bulk-edit-bar">
+            <label>
+                <input type="checkbox" id="select-all-photos">
+                Вибрати всі на сторінці
+            </label>
+            <button class="button" type="submit" name="bulk_action" value="edit">Масове редагування</button>
+        </div>
+        <div class="admin-list">
         <?php foreach ($photos as $photo): ?>
             <article class="admin-item">
+                <label class="photo-checkbox-label">
+                    <input type="checkbox" name="photo_ids[]" value="<?= h((string) $photo['id']) ?>" class="photo-checkbox">
+                </label>
                 <img
                     src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
                     srcset="<?= h(photo_responsive_srcset($photo)) ?>"
@@ -248,6 +192,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             </article>
         <?php endforeach; ?>
     </div>
+    </form>
 
     <?php if ($totalPages > 1): ?>
         <nav class="pagination" aria-label="Пагінація адмінпанелі">

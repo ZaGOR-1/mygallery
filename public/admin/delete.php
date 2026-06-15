@@ -25,9 +25,7 @@ if ($id === false || $id === null || $id < 1) {
 }
 
 try {
-    $stmt = db()->prepare('SELECT * FROM photos WHERE id = :id');
-    $stmt->execute(['id' => $id]);
-    $photo = $stmt->fetch();
+    $photo = fetch_photo_by_id(db(), $id);
 } catch (Throwable $exception) {
     app_log_exception($exception, 'Delete fetch failed');
     set_flash('error', 'Не вдалося знайти фотографію для видалення.');
@@ -39,53 +37,13 @@ if (!$photo) {
     redirect('admin/index.php');
 }
 
-$fileErrors = validate_photo_files_deletable($photo);
-
-if (!empty($fileErrors)) {
-    set_flash('error', implode(' ', $fileErrors));
-    redirect('admin/index.php');
-}
-
-$folderErrors = ensure_upload_folders();
-
-if (!empty($folderErrors)) {
-    set_flash('error', implode(' ', $folderErrors));
-    redirect('admin/index.php');
-}
-
-$movedFiles = [];
-$pdo = db();
+require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'photo_service.php';
 
 try {
-    $movedFiles = move_photo_files_to_trash($photo);
-    $pdo->beginTransaction();
-
-    $stmt = $pdo->prepare('DELETE FROM photos WHERE id = :id');
-    $stmt->execute(['id' => $id]);
-    prune_unused_tags();
-    $pdo->commit();
-} catch (Throwable $exception) {
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
-
+    delete_photo_with_trash(db(), $id, $photo);
+} catch (RuntimeException $exception) {
     app_log_exception($exception, 'Delete failed');
-    $restoreErrors = restore_moved_photo_files($movedFiles);
-    $message = 'Не вдалося видалити фотографію. Файли залишено на місці.';
-
-    if (!empty($restoreErrors)) {
-        $message .= ' ' . implode(' ', $restoreErrors);
-    }
-
-    set_flash('error', $message);
-    redirect('admin/index.php');
-}
-
-$fileErrors = remove_trashed_photo_files($movedFiles);
-
-if (!empty($fileErrors)) {
-    app_log('Delete cleanup warning: ' . implode(' ', $fileErrors));
-    set_flash('error', 'Запис із бази видалено, але частину тимчасових файлів не вдалося прибрати. Деталі записано в лог.');
+    set_flash('error', $exception->getMessage());
     redirect('admin/index.php');
 }
 

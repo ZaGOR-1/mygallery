@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS `admins` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `username` VARCHAR(100) NOT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
+  `session_version` INT NOT NULL DEFAULT 1,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_admins_username` (`username`)
@@ -10,10 +11,13 @@ CREATE TABLE IF NOT EXISTS `admins` (
 CREATE TABLE IF NOT EXISTS `albums` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(100) NOT NULL,
+  `cover_photo_id` INT UNSIGNED NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `idx_albums_name` (`name`)
+  UNIQUE KEY `idx_albums_name` (`name`),
+  KEY `idx_albums_cover_photo_id` (`cover_photo_id`),
+  CONSTRAINT `fk_albums_cover_photo_id` FOREIGN KEY (`cover_photo_id`) REFERENCES `photos` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `photos` (
@@ -33,11 +37,13 @@ CREATE TABLE IF NOT EXISTS `photos` (
   `lens_model` VARCHAR(255) NULL,
   `taken_at` DATETIME NULL,
   `exif_json` JSON NULL,
+  `original_sha256` CHAR(64) NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_photos_filename_unique` (`filename`),
   UNIQUE KEY `idx_photos_thumbnail_filename_unique` (`thumbnail_filename`),
+  UNIQUE KEY `idx_photos_original_sha256_unique` (`original_sha256`),
   KEY `idx_photos_album_id` (`album_id`),
   KEY `idx_photos_taken_at` (`taken_at`),
   KEY `idx_photos_created_at` (`created_at`),
@@ -82,4 +88,19 @@ CREATE TABLE IF NOT EXISTS `login_attempts` (
   KEY `idx_login_attempts_ip_address` (`ip_address`),
   KEY `idx_login_attempts_locked_until` (`locked_until`),
   KEY `idx_login_attempts_last_attempt_at` (`last_attempt_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `share_links` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `token` VARCHAR(64) NOT NULL,
+  `photo_id` INT UNSIGNED NULL,
+  `album_id` INT UNSIGNED NULL,
+  `expires_at` DATETIME NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_share_links_token` (`token`),
+  KEY `idx_share_links_photo_id` (`photo_id`),
+  KEY `idx_share_links_album_id` (`album_id`),
+  CONSTRAINT `fk_share_links_photo_id` FOREIGN KEY (`photo_id`) REFERENCES `photos` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_share_links_album_id` FOREIGN KEY (`album_id`) REFERENCES `albums` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
