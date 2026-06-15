@@ -510,11 +510,29 @@ function get_album_options(bool $withCounts = false): array
 function get_public_albums_with_covers(): array
 {
     $stmt = db()->query(
-        'SELECT a.id, a.name, a.cover_photo_id, p.thumbnail_filename, COUNT(p2.id) AS photo_count
+        'SELECT
+            a.id,
+            a.name,
+            a.cover_photo_id,
+            p.filename,
+            p.thumbnail_filename,
+            p.width,
+            p.title AS cover_title,
+            COUNT(p2.id) AS photo_count,
+            MAX(p2.created_at) AS last_photo_at
         FROM albums a
-        LEFT JOIN photos p ON p.id = a.cover_photo_id
+        LEFT JOIN photos p ON p.id = CASE
+            WHEN a.cover_photo_id IS NOT NULL THEN a.cover_photo_id
+            ELSE (
+                SELECT p3.id
+                FROM photos p3
+                WHERE p3.album_id = a.id
+                ORDER BY p3.created_at DESC, p3.id DESC
+                LIMIT 1
+            )
+        END
         LEFT JOIN photos p2 ON p2.album_id = a.id
-        GROUP BY a.id, a.name, a.cover_photo_id, p.thumbnail_filename
+        GROUP BY a.id, a.name, a.cover_photo_id, p.filename, p.thumbnail_filename, p.width, p.title
         ORDER BY a.name ASC'
     );
 

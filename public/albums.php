@@ -16,28 +16,38 @@ try {
 
 require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php';
 ?>
-<div class="gallery-toolbar">
+<section class="page-title album-page-title">
     <h1>Всі альбоми</h1>
-</div>
+    <p>Оберіть альбом, щоб переглянути фотографії з цієї серії.</p>
+</section>
 
 <?php if (isset($error)): ?>
     <div class="alert alert-error"><?= h($error) ?></div>
 <?php elseif (empty($albums)): ?>
     <p class="empty-state">Альбомів поки немає.</p>
 <?php else: ?>
-    <div class="photo-grid">
+    <div class="album-grid">
         <?php foreach ($albums as $album): ?>
-            <a href="<?= h(url('gallery.php?album_id=' . (int) $album['id'])) ?>" class="photo-card" style="text-decoration: none;">
-                <?php if ($album['thumbnail_filename']): ?>
-                    <img src="<?= h(url('uploads/thumbnails/' . $album['thumbnail_filename'])) ?>" alt="<?= h($album['name']) ?>" loading="lazy" style="width: 100%; aspect-ratio: 1; object-fit: cover; display: block;">
+            <a href="<?= h(url('gallery.php?album_id=' . (int) $album['id'])) ?>" class="album-card">
+                <?php if (!empty($album['thumbnail_filename'])): ?>
+                    <img
+                        src="<?= h(photo_display_url($album)) ?>"
+                        srcset="<?= h(photo_cover_srcset($album)) ?>"
+                        sizes="(max-width: 760px) 100vw, (max-width: 1180px) 50vw, 560px"
+                        alt="<?= h($album['cover_title'] ?: $album['name']) ?>"
+                        width="1200"
+                        height="720"
+                        loading="lazy"
+                    >
                 <?php else: ?>
-                    <div style="width: 100%; aspect-ratio: 1; background: var(--bg-hover); display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                    <div class="album-card-empty">
                         Без обкладинки
                     </div>
                 <?php endif; ?>
-                <div class="photo-info" style="border-top: 1px solid var(--border-color);">
-                    <div class="photo-title"><?= h($album['name']) ?></div>
-                    <div class="photo-meta"><?= h((string) (int) $album['photo_count']) ?> фото</div>
+                <div class="album-card-info">
+                    <span class="album-card-kicker"><?= h((string) (int) $album['photo_count']) ?> фото</span>
+                    <h2><?= h($album['name']) ?></h2>
+                    <span class="album-card-link">Відкрити альбом</span>
                 </div>
             </a>
         <?php endforeach; ?>

@@ -230,6 +230,101 @@ button.button {
     font-size: 14px;
 }
 
+.album-page-title {
+    max-width: 760px;
+}
+
+.album-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 420px));
+    justify-content: start;
+    gap: 22px;
+}
+
+.album-card {
+    position: relative;
+    display: grid;
+    min-height: 300px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text);
+    isolation: isolate;
+}
+
+.album-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background:
+        linear-gradient(180deg, rgba(16, 16, 16, 0.06) 28%, rgba(16, 16, 16, 0.7) 78%, rgba(16, 16, 16, 0.92) 100%),
+        linear-gradient(90deg, rgba(16, 16, 16, 0.44), rgba(16, 16, 16, 0.04) 58%);
+    pointer-events: none;
+}
+
+.album-card img,
+.album-card-empty {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    background: #050505;
+}
+
+.album-card img {
+    transform: scale(1.01);
+    transition: transform 180ms ease, filter 180ms ease;
+}
+
+.album-card:hover img,
+.album-card:focus-visible img {
+    transform: scale(1.04);
+    filter: saturate(1.06) contrast(1.03);
+}
+
+.album-card:focus-visible {
+    outline: 2px solid rgba(214, 167, 86, 0.75);
+    outline-offset: 3px;
+}
+
+.album-card-empty {
+    display: grid;
+    place-items: center;
+    min-height: inherit;
+    color: var(--muted);
+}
+
+.album-card-info {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    display: grid;
+    gap: 8px;
+    padding: 24px;
+}
+
+.album-card-kicker,
+.album-card-link {
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.album-card-info h2 {
+    max-width: 100%;
+    margin: 0;
+    font-size: clamp(24px, 3vw, 34px);
+    line-height: 1.08;
+    overflow-wrap: anywhere;
+}
+
+.album-card-link {
+    color: var(--accent);
+    font-weight: 700;
+}
+
 .pagination {
     display: flex;
     flex-wrap: wrap;
@@ -758,6 +853,19 @@ textarea:focus {
 
     .gallery-grid {
         grid-template-columns: 1fr;
+    }
+
+    .album-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .album-card {
+        min-height: 260px;
+    }
+
+    .album-card-info {
+        padding: 18px;
     }
 
     .form-panel,

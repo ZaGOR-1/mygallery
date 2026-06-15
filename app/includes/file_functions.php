@@ -678,6 +678,20 @@ function photo_responsive_srcset(array $photo): string
     return implode(', ', $items);
 }
 
+function photo_cover_srcset(array $photo): string
+{
+    $filename = (string) ($photo['filename'] ?? '');
+
+    if ($filename !== '' && safe_existing_upload_file_path('large', $filename) !== null) {
+        $largeWidth = (int) ($photo['width'] ?? 0);
+        $largeWidth = $largeWidth > 0 ? min($largeWidth, (int) app_config()['LARGE_MAX_WIDTH']) : (int) app_config()['LARGE_MAX_WIDTH'];
+
+        return uploads_url('large', $filename) . ' ' . $largeWidth . 'w';
+    }
+
+    return photo_responsive_srcset($photo);
+}
+
 function photo_card_sizes(): string
 {
     return '(max-width: 700px) 100vw, (max-width: 1100px) 50vw, 25vw';
