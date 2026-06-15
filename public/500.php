@@ -6,12 +6,13 @@ if (!function_exists('app_name')) {
     require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 }
 
-$errorStatusCode = (int) ($errorStatusCode ?? 404);
-$errorTitle = (string) ($errorTitle ?? 'Сторінку не знайдено');
-$errorMessage = (string) ($errorMessage ?? 'Перевірте адресу або поверніться до галереї.');
+$errorStatusCode = (int) ($errorStatusCode ?? 500);
+$errorTitle = (string) ($errorTitle ?? 'Помилка сервера');
+$errorMessage = (string) ($errorMessage ?? 'Сталася внутрішня помилка. Спробуйте пізніше або перевірте логи застосунку.');
+$errorDetails = (string) ($errorDetails ?? '');
 
 if (!headers_sent()) {
-    http_response_code(404);
+    http_response_code($errorStatusCode >= 400 ? $errorStatusCode : 500);
     send_security_headers();
 }
 ?>
@@ -26,9 +27,12 @@ if (!headers_sent()) {
 <body>
 <main class="error-page">
     <section class="container error-panel">
-        <span class="error-code">HTTP 404</span>
+        <span class="error-code">HTTP <?= h((string) $errorStatusCode) ?></span>
         <h1><?= h($errorTitle) ?></h1>
         <p><?= h($errorMessage) ?></p>
+        <?php if (app_debug() && $errorDetails !== ''): ?>
+            <pre class="error-details"><?= h($errorDetails) ?></pre>
+        <?php endif; ?>
         <div class="toolbar-actions">
             <a class="button" href="<?= h(url('gallery.php')) ?>">До галереї</a>
             <a class="button secondary" href="<?= h(url()) ?>">На головну</a>

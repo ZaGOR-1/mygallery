@@ -9,6 +9,29 @@ if (PHP_SAPI !== 'cli') {
     exit('Цей файл запускається тільки з консолі.');
 }
 
+$options = getopt('', ['password-from-stdin', 'help']);
+if (isset($options['help'])) {
+    echo "Usage:\n";
+    echo "  php tools/setup.php admin_username\n";
+    echo "  ADMIN_PASSWORD='strong-password' php tools/setup.php admin_username\n";
+    echo "  printf 'strong-password' | php tools/setup.php admin_username --password-from-stdin\n";
+    exit(0);
+}
+
+function setup_positional_args(array $argv): array
+{
+    $args = [];
+    foreach (array_slice($argv, 1) as $arg) {
+        if (str_starts_with((string) $arg, '--')) {
+            continue;
+        }
+
+        $args[] = (string) $arg;
+    }
+
+    return $args;
+}
+
 function ask(string $label): string
 {
     echo $label;
@@ -17,11 +40,20 @@ function ask(string $label): string
     return trim($value === false ? '' : $value);
 }
 
-function ask_secret(string $label): string
+function read_admin_password(array $options): string
 {
-    fwrite(STDERR, "Увага: у цьому portable setup пароль буде видно під час введення. Не запускайте його в записуваній/shared-консолі.\n");
+    $fromEnv = getenv('ADMIN_PASSWORD');
+    if (is_string($fromEnv) && $fromEnv !== '') {
+        return $fromEnv;
+    }
 
-    return ask($label);
+    if (isset($options['password-from-stdin'])) {
+        $value = stream_get_contents(STDIN);
+        return trim($value === false ? '' : $value);
+    }
+
+    fwrite(STDERR, "Увага: пароль буде видно під час введення. Безпечніше: ADMIN_PASSWORD='...' php tools/setup.php admin або --password-from-stdin.\n");
+    return ask('Пароль адміністратора: ');
 }
 
 try {
@@ -37,8 +69,9 @@ if ($adminExists) {
     exit(0);
 }
 
-$username = $argv[1] ?? ask('Логін адміністратора: ');
-$password = ask_secret('Пароль адміністратора: ');
+$args = setup_positional_args($argv);
+$username = $args[0] ?? ask('Логін адміністратора: ');
+$password = read_admin_password($options);
 
 if ($username === '') {
     fwrite(STDERR, "Вкажіть логін адміністратора.\n");

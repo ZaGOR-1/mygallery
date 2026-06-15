@@ -62,6 +62,7 @@ try {
 
     $stmt = $pdo->prepare('DELETE FROM photos WHERE id = :id');
     $stmt->execute(['id' => $id]);
+    prune_unused_tags();
     $pdo->commit();
 } catch (Throwable $exception) {
     if ($pdo->inTransaction()) {

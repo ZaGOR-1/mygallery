@@ -99,6 +99,17 @@ function login_lock_seconds_for(string $username, string $ip): int
 
 function upsert_failed_login_bucket(PDO $pdo, array $bucket, int $lockSeconds): void
 {
+    // INSERT IGNORE creates the row before SELECT ... FOR UPDATE. This avoids
+    // duplicate-key races when two requests fail the same bucket simultaneously.
+    $insert = $pdo->prepare(
+        'INSERT IGNORE INTO login_attempts (username, ip_address, attempts, locked_until)
+        VALUES (:username, :ip_address, 0, NULL)'
+    );
+    $insert->execute([
+        'username' => $bucket['username'],
+        'ip_address' => $bucket['ip_address'],
+    ]);
+
     $stmt = $pdo->prepare('SELECT attempts, locked_until FROM login_attempts WHERE username = :username AND ip_address = :ip_address LIMIT 1 FOR UPDATE');
     $stmt->execute([
         'username' => $bucket['username'],
@@ -106,38 +117,29 @@ function upsert_failed_login_bucket(PDO $pdo, array $bucket, int $lockSeconds): 
     ]);
 
     $attempt = $stmt->fetch();
-    $lockedUntil = null;
-    $attempts = 1;
-
-    if ($attempt) {
-        $currentLock = strtotime((string) ($attempt['locked_until'] ?? ''));
-
-        if ($currentLock !== false && $currentLock > time()) {
-            return;
-        }
-
-        $attempts = (int) ($attempt['attempts'] ?? 0) + 1;
+    if (!$attempt) {
+        throw new RuntimeException('Не вдалося створити login rate-limit bucket.');
     }
 
-    if ($attempts >= (int) $bucket['limit']) {
+    $currentLock = strtotime((string) ($attempt['locked_until'] ?? ''));
+    if ($currentLock !== false && $currentLock > time()) {
+        return;
+    }
+
+    $attempts = (int) ($attempt['attempts'] ?? 0) + 1;
+    $lockedUntil = null;
+
+    if ($attempts >= max(1, (int) $bucket['limit'])) {
         $lockedUntil = date('Y-m-d H:i:s', time() + $lockSeconds);
         $attempts = 0;
     }
 
-    if ($attempt) {
-        $stmt = $pdo->prepare(
-            'UPDATE login_attempts
-            SET attempts = :attempts, locked_until = :locked_until
-            WHERE username = :username AND ip_address = :ip_address'
-        );
-    } else {
-        $stmt = $pdo->prepare(
-            'INSERT INTO login_attempts (username, ip_address, attempts, locked_until)
-            VALUES (:username, :ip_address, :attempts, :locked_until)'
-        );
-    }
-
-    $stmt->execute([
+    $update = $pdo->prepare(
+        'UPDATE login_attempts
+        SET attempts = :attempts, locked_until = :locked_until, last_attempt_at = CURRENT_TIMESTAMP
+        WHERE username = :username AND ip_address = :ip_address'
+    );
+    $update->execute([
         'username' => $bucket['username'],
         'ip_address' => $bucket['ip_address'],
         'attempts' => $attempts,

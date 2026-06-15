@@ -35,26 +35,28 @@ try {
     $prevStmt = db()->prepare(
         'SELECT id, title
         FROM photos
-        WHERE created_at > :created_at OR (created_at = :created_at AND id > :id)
+        WHERE created_at > :created_at_after OR (created_at = :created_at_same_after AND id > :id_after)
         ORDER BY created_at ASC, id ASC
         LIMIT 1'
     );
     $prevStmt->execute([
-        'created_at' => $photo['created_at'],
-        'id' => $id,
+        'created_at_after' => $photo['created_at'],
+        'created_at_same_after' => $photo['created_at'],
+        'id_after' => $id,
     ]);
     $previousPhoto = $prevStmt->fetch();
 
     $nextStmt = db()->prepare(
         'SELECT id, title
         FROM photos
-        WHERE created_at < :created_at OR (created_at = :created_at AND id < :id)
+        WHERE created_at < :created_at_before OR (created_at = :created_at_same_before AND id < :id_before)
         ORDER BY created_at DESC, id DESC
         LIMIT 1'
     );
     $nextStmt->execute([
-        'created_at' => $photo['created_at'],
-        'id' => $id,
+        'created_at_before' => $photo['created_at'],
+        'created_at_same_before' => $photo['created_at'],
+        'id_before' => $id,
     ]);
     $nextPhoto = $nextStmt->fetch();
 } catch (Throwable $exception) {
@@ -68,6 +70,13 @@ $exifRows = normalized_exif_for_display($photo['exif_json'], $photo);
 $photoImageUrl = photo_display_url($photo);
 $photoSrcset = photo_responsive_srcset($photo);
 
+try {
+    $photoTags = get_photo_tags((int) $photo['id']);
+} catch (Throwable $exception) {
+    app_log_exception($exception, 'Photo tags failed');
+    $photoTags = [];
+}
+
 require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php';
 ?>
 <article class="photo-view">
@@ -78,6 +87,13 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
                 <p><a class="muted-link" href="<?= h(url('gallery.php?album_id=' . (int) $photo['album_id'])) ?>"><?= h($photo['album_name']) ?></a></p>
             <?php endif; ?>
             <p><?= h($photo['description'] ?: 'Без опису') ?></p>
+            <?php if (!empty($photoTags)): ?>
+                <div class="tag-list" aria-label="Теги фотографії">
+                    <?php foreach ($photoTags as $tag): ?>
+                        <a class="tag-pill" href="<?= h(url('gallery.php?tag_id=' . (int) $tag['id'])) ?>"><?= h($tag['name']) ?></a>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
         </div>
         <?php if (is_admin_logged_in()): ?>
             <a class="button secondary" href="<?= h(url('admin/edit.php?id=' . (int) $photo['id'])) ?>">Редагувати</a>

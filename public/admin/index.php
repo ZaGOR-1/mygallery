@@ -16,9 +16,12 @@ $totalPhotos = 0;
 $totalPages = 1;
 $cameraOptions = [];
 $albumOptions = [];
+$tagOptions = [];
+$tagsByPhoto = [];
 $search = get_query_string('q', 120);
 $camera = get_query_string('camera', 150);
 $albumId = get_album_id_from_request('album_id');
+$tagId = get_tag_id_from_request('tag_id');
 $dateFrom = get_query_string('date_from', 10);
 $dateTo = get_query_string('date_to', 10);
 $sort = get_query_string('sort', 30);
@@ -50,14 +53,16 @@ $filterParams = [
     'q' => $search,
     'camera' => $camera,
     'album_id' => $albumId,
+    'tag_id' => $tagId,
     'date_from' => $dateFrom,
     'date_to' => $dateTo,
     'sort' => $sort === 'newest' ? '' : $sort,
 ];
-$hasFilters = $search !== '' || $camera !== '' || $albumId !== null || $dateFrom !== '' || $dateTo !== '' || $sort !== 'newest';
+$hasFilters = $search !== '' || $camera !== '' || $albumId !== null || $tagId !== null || $dateFrom !== '' || $dateTo !== '' || $sort !== 'newest';
 
 try {
     $albumOptions = get_album_options(true);
+    $tagOptions = get_tag_options(true);
     $cameraOptions = db()
         ->query("SELECT DISTINCT camera_model FROM photos WHERE camera_model IS NOT NULL AND camera_model <> '' ORDER BY camera_model ASC")
         ->fetchAll(PDO::FETCH_COLUMN);
@@ -80,6 +85,12 @@ try {
         $params['album_id'] = $albumId;
     }
 
+    $joinSql = '';
+    if ($tagId !== null) {
+        $joinSql = ' INNER JOIN photo_tags photo_tags_filter ON photo_tags_filter.photo_id = photos.id AND photo_tags_filter.tag_id = :tag_id';
+        $params['tag_id'] = $tagId;
+    }
+
     if ($dateFrom !== '') {
         $where[] = 'photos.taken_at >= :date_from';
         $params['date_from'] = $dateFrom . ' 00:00:00';
@@ -92,7 +103,7 @@ try {
 
     $whereSql = empty($where) ? '' : ' WHERE ' . implode(' AND ', $where);
 
-    $countStmt = db()->prepare('SELECT COUNT(*) FROM photos' . $whereSql);
+    $countStmt = db()->prepare('SELECT COUNT(DISTINCT photos.id) FROM photos' . $joinSql . $whereSql);
     foreach ($params as $key => $value) {
         $countStmt->bindValue(':' . $key, $value);
     }
@@ -105,7 +116,7 @@ try {
     $stmt = db()->prepare(
         'SELECT photos.id, photos.filename, photos.thumbnail_filename, photos.width, photos.title, photos.original_name, photos.camera_model, photos.created_at, albums.name AS album_name
         FROM photos
-        LEFT JOIN albums ON albums.id = photos.album_id' . $whereSql . '
+        LEFT JOIN albums ON albums.id = photos.album_id' . $joinSql . $whereSql . '
         ORDER BY ' . $sortSql[$sort] . '
         LIMIT :limit OFFSET :offset'
     );
@@ -116,6 +127,7 @@ try {
     $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
     $stmt->execute();
     $photos = $stmt->fetchAll();
+    $tagsByPhoto = get_photo_tags_map(array_column($photos, 'id'));
 } catch (Throwable $exception) {
     app_http_error('Не вдалося завантажити список фотографій.', 500, $exception);
 }
@@ -128,6 +140,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <p>Керуйте фотографіями, назвами, описами та файлами. Знайдено <?= h((string) $totalPhotos) ?> фото. Сторінка <?= h((string) $page) ?> з <?= h((string) $totalPages) ?>.</p>
     </div>
     <div class="toolbar-actions">
+        <a class="button secondary" href="<?= h(url('admin/stats.php')) ?>">Статистика</a>
         <a class="button secondary" href="<?= h(url('admin/albums.php')) ?>">Альбоми</a>
         <a class="button" href="<?= h(url('admin/upload.php')) ?>">Завантажити фото</a>
     </div>
@@ -154,6 +167,17 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             <?php foreach ($albumOptions as $album): ?>
                 <option value="<?= h((string) $album['id']) ?>" <?= (int) $album['id'] === $albumId ? 'selected' : '' ?>>
                     <?= h($album['name'] . ' (' . (int) $album['photo_count'] . ')') ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+    </label>
+    <label>
+        Тег
+        <select name="tag_id">
+            <option value="">Усі теги</option>
+            <?php foreach ($tagOptions as $tag): ?>
+                <option value="<?= h((string) $tag['id']) ?>" <?= (int) $tag['id'] === $tagId ? 'selected' : '' ?>>
+                    <?= h($tag['name'] . ' (' . (int) $tag['photo_count'] . ')') ?>
                 </option>
             <?php endforeach; ?>
         </select>
@@ -202,9 +226,18 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
                     <p><?= h($photo['original_name']) ?></p>
                     <p><?= h($photo['album_name'] ?: 'Без альбому') ?></p>
                     <p><?= h($photo['camera_model'] ?: 'Немає даних') ?></p>
+                    <?php $photoTags = $tagsByPhoto[(int) $photo['id']] ?? []; ?>
+                    <?php if (!empty($photoTags)): ?>
+                        <div class="tag-list" aria-label="Теги фотографії">
+                            <?php foreach ($photoTags as $tag): ?>
+                                <a class="tag-pill" href="<?= h(url('admin/index.php?tag_id=' . (int) $tag['id'])) ?>"><?= h($tag['name']) ?></a>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
                 </div>
                 <div class="admin-actions">
                     <a class="button secondary" href="<?= h(url('photo.php?id=' . (int) $photo['id'])) ?>">Перегляд</a>
+                    <a class="button secondary" href="<?= h(url('admin/download.php?id=' . (int) $photo['id'])) ?>">Оригінал</a>
                     <a class="button secondary" href="<?= h(url('admin/edit.php?id=' . (int) $photo['id'])) ?>">Редагувати</a>
                     <form method="post" action="<?= h(url('admin/delete.php')) ?>" data-confirm="Видалити фотографію?">
                         <?= csrf_field() ?>

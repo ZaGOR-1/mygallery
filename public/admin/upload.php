@@ -12,6 +12,8 @@ $errors = [];
 $albumOptions = [];
 $selectedAlbumId = null;
 $newAlbumName = '';
+$tagsInput = '';
+$tagNames = [];
 $serverUploadLimit = upload_server_limit();
 $appUploadLimit = (int) app_config()['UPLOAD_MAX_SIZE'];
 $maxUploadSize = $serverUploadLimit > 0 ? min($appUploadLimit, $serverUploadLimit) : $appUploadLimit;
@@ -34,6 +36,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
     $titleInput = trim((string) ($_POST['title'] ?? ''));
     $descriptionInput = clean_description((string) ($_POST['description'] ?? ''));
+    $tagsInput = (string) ($_POST['tags'] ?? '');
+
+    try {
+        $tagNames = parse_tags_input($tagsInput);
+    } catch (InvalidArgumentException $exception) {
+        $tagNames = [];
+        $errors[] = $exception->getMessage();
+    }
     $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
     $requestTooLarge = $serverUploadLimit > 0 && $contentLength > $serverUploadLimit;
 
@@ -133,6 +143,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'exif_json' => $exifJson === false ? null : $exifJson,
                 ]);
 
+                $photoId = (int) $pdo->lastInsertId();
+                sync_photo_tags($photoId, $tagNames);
+
                 $pdo->commit();
             } catch (Throwable $exception) {
                 if ($pdo->inTransaction()) {
@@ -187,6 +200,11 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <label>
             Новий альбом
             <input type="text" name="new_album_name" value="<?= h($newAlbumName) ?>" maxlength="100" placeholder="Заповніть, якщо треба створити новий">
+        </label>
+        <label>
+            Теги
+            <input type="text" name="tags" value="<?= h($tagsInput) ?>" maxlength="500" placeholder="портрет, місто, Nikon D7100">
+            <span class="form-hint">Розділяйте теги комами. Максимум 20 тегів на фото.</span>
         </label>
         <label>
             JPEG-файл

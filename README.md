@@ -2,7 +2,7 @@
 
 MVP персональної фотогалереї на PHP 8.2+, Apache і MySQL/MariaDB. Проєкт зроблений як простий студентський PHP-проєкт без Laravel, React, Bootstrap, Composer і зайвої архітектури.
 
-Поточна версія підтримує JPEG-upload, EXIF, приватні оригінали, прев’ю, large-версії фото, альбоми, пошук, фільтри, сортування, лайтбокс із zoom/pan, адмінпанель, CSRF-захист, login rate limiter і службові CLI-інструменти для перевірки та обслуговування.
+Поточна версія V6 підтримує JPEG-upload, EXIF, приватні оригінали, прев’ю, large-версії фото, альбоми, теги, пошук, фільтри, сортування, лайтбокс із zoom/pan, адмінпанель, статистику, admin health-check, завантаження оригіналу тільки для адміна, CSRF-захист, login rate limiter і службові CLI-інструменти для перевірки, backup, release-збірки та обслуговування.
 
 ## Поточний статус
 
@@ -14,12 +14,14 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 - пагінація по 12 фотографій;
 - пошук за назвою, описом і назвою файла;
 - FULLTEXT-пошук із fallback на `LIKE`, якщо індекси ще не застосовані;
-- фільтри за альбомом, камерою та датою зйомки;
+- фільтри за альбомом, тегом, камерою та датою зйомки;
+- теги для фотографій з many-to-many зв’язком;
 - сортування за датою додавання, датою зйомки і назвою;
 - сторінка окремої фотографії з EXIF-даними;
 - перехід до попередньої та наступної фотографії;
 - лайтбокс на сторінці фото з кнопками зуму, колесиком миші та перетягуванням ЛКМ;
 - проста адмінпанель;
+- статистика в адмінці: фото, альбоми, теги, EXIF, сховище, камери, об’єктиви, місяці;
 - створення, перейменування і видалення альбомів;
 - завантаження, редагування і видалення фотографій;
 - серверне обмеження невдалих спроб входу;
@@ -34,7 +36,7 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 - responsive images через `srcset` і `sizes`;
 - автоматичне виправлення EXIF Orientation;
 - базові security headers;
-- службові CLI-інструменти для setup, self-check, cleanup, міграції legacy originals і recovery trash.
+- службові CLI-інструменти для setup, self-check, cleanup, міграції legacy originals, recovery trash, backup, regenerate images і чистої release-збірки.
 
 ## Структура проєкту
 
@@ -45,8 +47,13 @@ database/schema.sql                   повна структура бази д�
 database/migrations/                  SQL-міграції для вже встановленої бази
 public/                               єдина публічна папка сайту
 public/admin/                         адміністративні сторінки
+public/admin/health.php               web health-check тільки для адміністратора
+public/admin/stats.php                статистика контенту і media-сховища
+public/admin/download.php             download приватного оригіналу тільки для адміністратора
 public/assets/                        CSS і JavaScript
-public/.htaccess                      переносимі Apache-правила без php_value
+public/.htaccess                      переносимі Apache-правила без php_value і ErrorDocument
+public/404.php                         сторінка помилки 404
+public/500.php                         сторінка помилки 500
 public/uploads/large/                 оптимізовані веб-версії JPEG
 public/uploads/thumbnails/            прев’ю JPEG
 public/uploads/originals/             legacy-only папка, нові оригінали тут не зберігати
@@ -56,20 +63,29 @@ storage/logs/                         приватні логи застосун
 storage/sessions/                     приватні PHP session-файли
 tools/setup.php                       консольне створення першого адміністратора
 tools/self_check.php                  швидка перевірка структури, модулів і доступів
+tools/build_release.php               збірка чистого release ZIP без приватних файлів
+tools/backup.php                      приватний backup БД і media-файлів
+tools/regenerate_images.php           регенерація large/thumbnail із storage/originals
 tools/cleanup_orphans.php             пошук зайвих файлів і відсутніх media-файлів
 tools/migrate_legacy_originals.php    перенесення старих public originals у storage/originals
 tools/recover_trash.php               відновлення або очищення trash manifest-файлів
+VERSION                               поточна версія проєкту
+tools/lib/SimpleZipWriter.php         pure-PHP ZIP writer для release/backup
 README.md                             основна інструкція запуску
 AGENTS.md                             правила для AI/Codex-агента
 IMPLEMENTED_FEATURES.md               що вже реалізовано
+CHANGELOG.md                          історія змін версій
 BUGS.md                               відомі обмеження і потенційні баги
 POST_MVP_ROADMAP.md                   майбутні задачі, не список уже реалізованого
 FIXES_APPLIED.md                      історія hardening-виправлень
 AUDIT_REPORT.md                       короткий підсумок останнього аудиту
 FULL_PROJECT_AUDIT.md                 детальний технічний аудит
+AUDIT_PROMPT.md                       промпт для повторного аудиту AI-агентом
 ```
 
 Apache або Nginx має відкривати тільки папку `public/`. Папки `app/`, `config/`, `database/`, `storage/`, `tools/` і markdown-документи не повинні бути доступні напряму через браузер.
+
+Релізний ZIP не повинен містити `.git/`, `config/database.php`, реальні фото з `storage/originals` / `public/uploads`, логи `*.log`, session-файли `sess_*`, backup-архіви або тимчасові файли. Перед передачею проєкту іншій людині збирайте чисту копію з `.gitkeep` у порожніх директоріях.
 
 ## Важливо про оригінали фото
 
@@ -86,8 +102,9 @@ php tools/migrate_legacy_originals.php --apply
 
 ## Користування
 
-- `gallery.php` підтримує GET-фільтри: пошук, альбом, камера, дата зйомки і сортування.
+- `gallery.php` підтримує GET-фільтри: пошук, альбом, тег, камера, дата зйомки і сортування.
 - Альбоми створюються в `admin/albums.php` або прямо під час завантаження/редагування фото.
+- Теги вводяться через кому під час завантаження або редагування фото. Один тег можна використовувати для багатьох фото.
 - Картки в галереї відкривають сторінку окремої фотографії, щоб EXIF і навігація залишалися доступними без JavaScript.
 - На сторінці фото клік по зображенню відкриває лайтбокс.
 - В адмінпанелі список фотографій підтримує пошук, фільтри за альбомом/камерою/датою та сортування.
@@ -181,6 +198,7 @@ C:\wamp64\bin\php\php8.3.14\php.exe tools\self_check.php
 ```powershell
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_12_add_albums.sql"
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_13_hardening.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_13_add_tags.sql"
 ```
 
 SQL-файли не містять `USE`, тому застосовуються до бази, яку ви явно передали в команді `mysql ... database_name < file.sql`.
@@ -304,10 +322,12 @@ ServerSignature Off
 Створення першого адміністратора:
 
 ```bash
-php tools/setup.php
+php tools/setup.php admin
+ADMIN_PASSWORD="strong-password" php tools/setup.php admin
+printf "strong-password" | php tools/setup.php admin --password-from-stdin
 ```
 
-`setup.php` не приймає пароль через аргументи CLI. У portable-режимі пароль вводиться через stdin і може бути видимим у консолі, тому запускайте tool тільки в приватній локальній або серверній shell-сесії.
+`setup.php` більше не вимагає передавати пароль через видимий CLI-аргумент. Найбезпечніші portable-варіанти — `ADMIN_PASSWORD` або `--password-from-stdin`. Якщо вводити пароль інтерактивно, він може бути видимим у консолі.
 
 Самоперевірка структури, конфігурації, модулів і доступів:
 
@@ -337,6 +357,39 @@ php tools/recover_trash.php --apply
 php tools/recover_trash.php --apply --purge-deleted
 ```
 
+Регенерація optimized-зображень із приватних оригіналів:
+
+```bash
+php tools/regenerate_images.php --all
+php tools/regenerate_images.php --large
+php tools/regenerate_images.php --thumbnails
+php tools/regenerate_images.php --all --photo-id=123
+php tools/regenerate_images.php --all --dry-run
+```
+
+Збірка чистого release ZIP:
+
+```bash
+php tools/build_release.php
+```
+
+На виході буде `dist/mygallery_v5.0.0_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/backup-файли або реальні фото з upload/storage.
+
+Приватний backup:
+
+```bash
+php tools/backup.php
+php tools/backup.php --include-config
+```
+
+Без `--include-config` файл `config/database.php` не потрапляє в backup ZIP. Див. також `BACKUP_RESTORE.md`.
+
+Web health-check доступний після входу в адмінку:
+
+```text
+/admin/health.php
+```
+
 ## Резервне копіювання
 
 Регулярно зберігайте:
@@ -347,13 +400,19 @@ php tools/recover_trash.php --apply --purge-deleted
 - `public/uploads/thumbnails`;
 - `config/config.php` і `config/database.php` окремо від публічного репозиторію.
 
-Приклад дампу:
+Приклад автоматичного backup ZIP:
+
+```bash
+php tools/backup.php
+```
+
+Для ручного SQL-дампу також можна використати:
 
 ```bash
 mysqldump -u gallery_user -p my_photo_gallery > backup.sql
 ```
 
-Backup не можна зберігати всередині `public/` і не можна комітити в Git.
+Backup не можна зберігати всередині `public/` і не можна комітити в Git. Детальний порядок restore описаний у `BACKUP_RESTORE.md`.
 
 ## Передача ZIP-архіву
 
@@ -367,7 +426,7 @@ Backup не можна зберігати всередині `public/` і не �
 - session-файли зі `storage/sessions`;
 - backup/tmp/archive-файли.
 
-Залишайте в архіві код, `config/database.example.php`, `database/schema.sql`, міграції, `.gitkeep`-файли і актуальні `.md` документи.
+Залишайте в архіві код, `config/database.example.php`, `database/schema.sql`, міграції, `.gitkeep`-файли і актуальні `.md` документи. Для цього використовуйте `php tools/build_release.php`, а не ручне архівування всієї робочої папки.
 
 ## Змінні середовища
 
@@ -394,6 +453,7 @@ DB_PASSWORD=strong_password
 - `FIXES_APPLIED.md` — історія вже внесених hardening-виправлень.
 - `AUDIT_REPORT.md` — короткий підсумок останнього аудиту.
 - `FULL_PROJECT_AUDIT.md` — детальний аудит із findings і статусом виправлень.
+- `AUDIT_PROMPT.md` — готовий промпт для повторного аудиту AI-агентом.
 - `AGENTS.md` — правила для AI/Codex-агента, який буде змінювати проєкт.
 
 ## Після встановлення

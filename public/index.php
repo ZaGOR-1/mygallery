@@ -7,7 +7,7 @@ require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATO
 $pageTitle = app_name();
 
 try {
-    $stmt = db()->query('SELECT id, title, thumbnail_filename, camera_model, taken_at FROM photos ORDER BY created_at DESC, id DESC LIMIT 6');
+    $stmt = db()->query('SELECT id, title, filename, thumbnail_filename, width, camera_model, taken_at FROM photos ORDER BY created_at DESC, id DESC LIMIT 6');
     $latestPhotos = $stmt->fetchAll();
 } catch (Throwable $exception) {
     app_http_error('Не вдалося завантажити головну сторінку. Перевірте підключення до бази даних.', 500, $exception);
@@ -36,7 +36,15 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
         <?php foreach ($latestPhotos as $photo): ?>
             <article class="photo-card">
                 <a href="<?= h(url('photo.php?id=' . (int) $photo['id'])) ?>">
-                    <img src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>" alt="<?= h($photo['title']) ?>" width="600" height="400" loading="lazy">
+                    <img
+                        src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
+                        srcset="<?= h(photo_responsive_srcset($photo)) ?>"
+                        sizes="<?= h(photo_card_sizes()) ?>"
+                        alt="<?= h($photo['title']) ?>"
+                        width="600"
+                        height="400"
+                        loading="lazy"
+                    >
                     <span><?= h($photo['title']) ?></span>
                 </a>
                 <p><?= h($photo['camera_model'] ?: 'Немає даних') ?></p>

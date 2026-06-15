@@ -33,9 +33,12 @@ $errors = [];
 $albumOptions = [];
 $selectedAlbumId = isset($photo['album_id']) ? (int) $photo['album_id'] : null;
 $newAlbumName = '';
+$tagsInput = '';
+$tagNames = [];
 
 try {
     $albumOptions = get_album_options();
+    $tagsInput = tags_for_input(get_photo_tags($id));
 } catch (Throwable $exception) {
     app_log_exception($exception, 'Album options failed');
     $errors[] = 'Не вдалося завантажити список альбомів. Перевірте схему бази даних.';
@@ -50,6 +53,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
+    $tagsInput = (string) ($_POST['tags'] ?? '');
+
+    try {
+        $tagNames = parse_tags_input($tagsInput);
+    } catch (InvalidArgumentException $exception) {
+        $tagNames = [];
+        $errors[] = $exception->getMessage();
+    }
 
     if (!verify_csrf()) {
         $errors[] = 'Помилка CSRF-захисту. Оновіть сторінку і спробуйте ще раз.';
@@ -75,6 +86,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'description' => $description,
                 'id' => $id,
             ]);
+            sync_photo_tags($id, $tagNames);
+            prune_unused_tags();
             $pdo->commit();
 
             set_flash('success', 'Фотографію оновлено.');
@@ -125,6 +138,11 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <label>
             Новий альбом
             <input type="text" name="new_album_name" value="<?= h($newAlbumName) ?>" maxlength="100" placeholder="Заповніть, якщо треба створити новий">
+        </label>
+        <label>
+            Теги
+            <input type="text" name="tags" value="<?= h($tagsInput) ?>" maxlength="500" placeholder="портрет, місто, Nikon D7100">
+            <span class="form-hint">Розділяйте теги комами. Максимум 20 тегів на фото.</span>
         </label>
         <button class="button" type="submit">Зберегти</button>
     </form>

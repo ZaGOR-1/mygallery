@@ -2,6 +2,7 @@
 # Keeping php_value out of this file makes the project portable to PHP-FPM/CGI hosting.
 ServerSignature Off
 ErrorDocument 404 /404.php
+ErrorDocument 500 /500.php
 
 <IfModule mod_headers.c>
     Header always unset X-Powered-By

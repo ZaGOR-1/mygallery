@@ -153,7 +153,8 @@ mygallery/
 ├── POST_MVP_ROADMAP.md
 ├── FIXES_APPLIED.md
 ├── AUDIT_REPORT.md
-└── FULL_PROJECT_AUDIT.md
+├── FULL_PROJECT_AUDIT.md
+└── AUDIT_PROMPT.md
 ```
 
 ## Правила для upload
@@ -307,6 +308,7 @@ SQL-файли portable і не містять `USE my_photo_gallery;`. README-�
 - `FIXES_APPLIED.md` — історія вже внесених виправлень.
 - `AUDIT_REPORT.md` — короткий актуальний summary аудиту.
 - `FULL_PROJECT_AUDIT.md` — детальний аудит із findings і статусом виправлень.
+- `AUDIT_PROMPT.md` — промпт для повторного аудиту AI-агентом.
 
 Якщо реалізуєш пункт із roadmap:
 
@@ -385,3 +387,31 @@ php tools/cleanup_orphans.php
 - AGENTS.md відповідає актуальному стану проєкту;
 - IMPLEMENTED_FEATURES/BUGS/ROADMAP не суперечать одне одному;
 - описані всі невиконані перевірки або обмеження.
+
+## Release hygiene
+
+Не додавай у релізний архів `.git/`, `config/database.php`, завантажені JPEG, `*.log`, `sess_*`, backup-архіви або тимчасові файли. У порожніх runtime-директоріях залишай тільки `.gitkeep` і службові `.htaccess`, якщо вони потрібні.
+
+
+## V5 maintenance tools
+
+Після будь-яких змін у release/build/backup/upload логіці перевіряй:
+
+```bash
+php tools/build_release.php
+php -l tools/build_release.php
+php -l tools/backup.php
+php -l tools/regenerate_images.php
+```
+
+`tools/build_release.php` має залишатися безпечним: не додавати `.git/`, `config/database.php`, `.env`, `sess_*`, `*.log`, `*.zip`, backup/tmp-файли або реальні фото.
+
+`/admin/health.php` і `/admin/download.php` завжди мають бути тільки за `require_admin()`.
+
+
+## V6 implementation notes for agents
+
+- Keep tag support in `tags` and `photo_tags`; do not store comma-separated tags inside `photos`.
+- Apply tag changes through `parse_tags_input()` and `sync_photo_tags()` so validation and pruning remain consistent.
+- Keep `/admin/stats.php` admin-only.
+- Error pages must stay standalone and must not require an active session.

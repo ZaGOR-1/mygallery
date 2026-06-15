@@ -27,3 +27,9 @@ storage/test_sessions/*
 .vscode/
 .DS_Store
 Thumbs.db
+
+dist/*.zip
+backups/*.zip
+backups/*.sql
+!backups/.gitkeep
+!dist/.gitkeep

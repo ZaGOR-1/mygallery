@@ -180,6 +180,7 @@ function check_required_directories(): void
         storage_path('logs'),
         storage_path('sessions'),
         project_root_path('tools'),
+        project_root_path('tools' . DIRECTORY_SEPARATOR . 'lib'),
     ];
 
     foreach ($requiredDirectories as $directory) {
@@ -209,6 +210,22 @@ function check_upload_protection_files(): void
     assert_true(is_file(uploads_path('originals', '.htaccess')), 'public/uploads/originals/.htaccess missing.');
 }
 
+function check_required_tool_files(): void
+{
+    $toolFiles = [
+        project_root_path('tools' . DIRECTORY_SEPARATOR . 'build_release.php'),
+        project_root_path('tools' . DIRECTORY_SEPARATOR . 'backup.php'),
+        project_root_path('tools' . DIRECTORY_SEPARATOR . 'regenerate_images.php'),
+        project_root_path('tools' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'SimpleZipWriter.php'),
+        public_path('admin' . DIRECTORY_SEPARATOR . 'health.php'),
+        public_path('admin' . DIRECTORY_SEPARATOR . 'download.php'),
+    ];
+
+    foreach ($toolFiles as $file) {
+        assert_true(is_file($file), 'Required tool/page missing: ' . $file);
+    }
+}
+
 function check_gitkeep_files(): void
 {
     $gitkeepFiles = [
@@ -229,6 +246,7 @@ function check_gitkeep_files(): void
 check_required_extensions();
 check_config_files();
 check_required_directories();
+check_required_tool_files();
 check_writable_directories();
 check_upload_protection_files();
 check_gitkeep_files();

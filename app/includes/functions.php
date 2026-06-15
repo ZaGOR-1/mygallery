@@ -70,7 +70,18 @@ function app_http_error(string $message, int $statusCode = 500, ?Throwable $exce
         ? $message . ' ' . $exception->getMessage()
         : $message;
 
-    echo '<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Помилка</title></head><body><h1>Помилка сервера</h1><p>' . h($safeMessage) . '</p></body></html>';
+    $errorStatusCode = $statusCode;
+    $errorTitle = $statusCode === 404 ? 'Сторінку не знайдено' : 'Помилка сервера';
+    $errorMessage = $safeMessage;
+    $errorDetails = app_debug() && $exception !== null ? $exception->getTraceAsString() : '';
+    $errorPage = public_path($statusCode === 404 ? '404.php' : '500.php');
+
+    if (is_file($errorPage)) {
+        require $errorPage;
+        exit;
+    }
+
+    echo '<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Помилка</title></head><body><h1>' . h($errorTitle) . '</h1><p>' . h($safeMessage) . '</p></body></html>';
     exit;
 }
 
@@ -369,11 +380,14 @@ function fulltext_index_exists(string $indexName): bool
 
 function fulltext_boolean_query(string $search): string
 {
-    preg_match_all('/[\p{L}\p{N}_-]+/u', $search, $matches);
-    $terms = array_slice(array_filter(
+    // MySQL boolean FULLTEXT treats characters like `-`, `+`, `~`, `*`, `(`, `)`
+    // as operators. Extract only plain word tokens and add our own safe `+term*`
+    // syntax to avoid accidental negative terms or syntax errors from user input.
+    preg_match_all('/[\p{L}\p{N}_]+/u', $search, $matches);
+    $terms = array_slice(array_values(array_unique(array_filter(
         $matches[0] ?? [],
-        static fn (string $term): bool => mb_strlen($term) >= 2
-    ), 0, 8);
+        static fn (string $term): bool => mb_strlen($term, 'UTF-8') >= 2
+    ))), 0, 8);
 
     if (empty($terms)) {
         return '';
@@ -635,6 +649,188 @@ function resolve_album_id_from_post(): ?int
 
     return $albumId;
 }
+
+
+function tag_name_max_length(): int
+{
+    return 60;
+}
+
+function clean_tag_name(string $name): string
+{
+    $name = preg_replace('/[\x00-\x1F\x7F]/u', '', $name) ?? '';
+    $name = preg_replace('/\s+/u', ' ', trim($name)) ?? '';
+
+    return text_limit($name, tag_name_max_length());
+}
+
+function tag_slug(string $name): string
+{
+    $normalized = function_exists('mb_strtolower') ? mb_strtolower($name, 'UTF-8') : strtolower($name);
+    $base = preg_replace('/[^\p{L}\p{N}]+/u', '-', $normalized) ?? '';
+    $base = trim($base, '-');
+
+    if ($base === '') {
+        $base = 'tag';
+    }
+
+    $base = text_limit($base, 72);
+
+    return $base . '-' . substr(sha1($normalized), 0, 8);
+}
+
+function parse_tags_input(string $input): array
+{
+    $input = str_replace(["\r\n", "\r", "\n", ';'], ',', $input);
+    $parts = array_filter(array_map('clean_tag_name', explode(',', $input)), static fn (string $tag): bool => $tag !== '');
+    $tags = [];
+    $seen = [];
+
+    foreach ($parts as $tag) {
+        $key = function_exists('mb_strtolower') ? mb_strtolower($tag, 'UTF-8') : strtolower($tag);
+        if (isset($seen[$key])) {
+            continue;
+        }
+
+        $seen[$key] = true;
+        $tags[] = $tag;
+    }
+
+    if (count($tags) > 20) {
+        throw new InvalidArgumentException('Максимум 20 тегів для однієї фотографії.');
+    }
+
+    return $tags;
+}
+
+function tags_for_input(array $tags): string
+{
+    $names = array_map(static fn (array $tag): string => (string) $tag['name'], $tags);
+
+    return implode(', ', $names);
+}
+
+function get_tag_id_from_request(string $key = 'tag_id'): ?int
+{
+    $id = filter_input(INPUT_GET, $key, FILTER_VALIDATE_INT);
+
+    return $id === false || $id === null || $id < 1 ? null : $id;
+}
+
+function get_tag_options(bool $withCounts = false): array
+{
+    if ($withCounts) {
+        $stmt = db()->query(
+            'SELECT tags.id, tags.name, tags.slug, COUNT(photo_tags.photo_id) AS photo_count
+            FROM tags
+            LEFT JOIN photo_tags ON photo_tags.tag_id = tags.id
+            GROUP BY tags.id, tags.name, tags.slug
+            ORDER BY tags.name ASC'
+        );
+
+        return $stmt->fetchAll();
+    }
+
+    $stmt = db()->query('SELECT id, name, slug FROM tags ORDER BY name ASC');
+
+    return $stmt->fetchAll();
+}
+
+function tag_exists(int $id): bool
+{
+    $stmt = db()->prepare('SELECT COUNT(*) FROM tags WHERE id = :id');
+    $stmt->execute(['id' => $id]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function find_or_create_tag(string $name): int
+{
+    $name = clean_tag_name($name);
+
+    if ($name === '') {
+        throw new InvalidArgumentException('Назва тегу не може бути порожньою.');
+    }
+
+    $stmt = db()->prepare(
+        'INSERT INTO tags (name, slug) VALUES (:name, :slug)
+        ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), name = VALUES(name)'
+    );
+    $stmt->execute([
+        'name' => $name,
+        'slug' => tag_slug($name),
+    ]);
+
+    return (int) db()->lastInsertId();
+}
+
+function sync_photo_tags(int $photoId, array $tagNames): void
+{
+    $deleteStmt = db()->prepare('DELETE FROM photo_tags WHERE photo_id = :photo_id');
+    $deleteStmt->execute(['photo_id' => $photoId]);
+
+    if (empty($tagNames)) {
+        return;
+    }
+
+    $insertStmt = db()->prepare('INSERT IGNORE INTO photo_tags (photo_id, tag_id) VALUES (:photo_id, :tag_id)');
+
+    foreach ($tagNames as $tagName) {
+        $tagId = find_or_create_tag($tagName);
+        $insertStmt->execute([
+            'photo_id' => $photoId,
+            'tag_id' => $tagId,
+        ]);
+    }
+}
+
+function get_photo_tags(int $photoId): array
+{
+    $stmt = db()->prepare(
+        'SELECT tags.id, tags.name, tags.slug
+        FROM tags
+        INNER JOIN photo_tags ON photo_tags.tag_id = tags.id
+        WHERE photo_tags.photo_id = :photo_id
+        ORDER BY tags.name ASC'
+    );
+    $stmt->execute(['photo_id' => $photoId]);
+
+    return $stmt->fetchAll();
+}
+
+function get_photo_tags_map(array $photoIds): array
+{
+    $photoIds = array_values(array_unique(array_filter(array_map('intval', $photoIds), static fn (int $id): bool => $id > 0)));
+
+    if (empty($photoIds)) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($photoIds), '?'));
+    $stmt = db()->prepare(
+        'SELECT photo_tags.photo_id, tags.id, tags.name, tags.slug
+        FROM photo_tags
+        INNER JOIN tags ON tags.id = photo_tags.tag_id
+        WHERE photo_tags.photo_id IN (' . $placeholders . ')
+        ORDER BY tags.name ASC'
+    );
+    $stmt->execute($photoIds);
+
+    $map = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $photoId = (int) $row['photo_id'];
+        unset($row['photo_id']);
+        $map[$photoId][] = $row;
+    }
+
+    return $map;
+}
+
+function prune_unused_tags(): void
+{
+    db()->exec('DELETE tags FROM tags LEFT JOIN photo_tags ON photo_tags.tag_id = tags.id WHERE photo_tags.tag_id IS NULL');
+}
+
 
 function uploads_path(string $folder, string $filename = ''): string
 {
@@ -1072,40 +1268,72 @@ function apply_orientation(GdImage $image, mixed $orientation): GdImage
     $orientation = (int) $orientation;
 
     if ($orientation === 2) {
-        imageflip($image, IMG_FLIP_HORIZONTAL);
+        if (!imageflip($image, IMG_FLIP_HORIZONTAL)) {
+            throw new RuntimeException('Не вдалося застосувати EXIF orientation 2.');
+        }
+
         return $image;
     }
 
     if ($orientation === 3) {
         $rotated = imagerotate($image, 180, 0);
-        return $rotated ?: $image;
+        if (!$rotated instanceof GdImage) {
+            throw new RuntimeException('Не вдалося застосувати EXIF orientation 3.');
+        }
+
+        return $rotated;
     }
 
     if ($orientation === 4) {
-        imageflip($image, IMG_FLIP_VERTICAL);
+        if (!imageflip($image, IMG_FLIP_VERTICAL)) {
+            throw new RuntimeException('Не вдалося застосувати EXIF orientation 4.');
+        }
+
         return $image;
     }
 
     if ($orientation === 5) {
-        imageflip($image, IMG_FLIP_HORIZONTAL);
+        if (!imageflip($image, IMG_FLIP_HORIZONTAL)) {
+            throw new RuntimeException('Не вдалося застосувати EXIF orientation 5 flip.');
+        }
+
         $rotated = imagerotate($image, 90, 0);
-        return $rotated ?: $image;
+        if (!$rotated instanceof GdImage) {
+            throw new RuntimeException('Не вдалося застосувати EXIF orientation 5 rotate.');
+        }
+
+        return $rotated;
     }
 
     if ($orientation === 6) {
         $rotated = imagerotate($image, -90, 0);
-        return $rotated ?: $image;
+        if (!$rotated instanceof GdImage) {
+            throw new RuntimeException('Не вдалося застосувати EXIF orientation 6.');
+        }
+
+        return $rotated;
     }
 
     if ($orientation === 7) {
-        imageflip($image, IMG_FLIP_HORIZONTAL);
+        if (!imageflip($image, IMG_FLIP_HORIZONTAL)) {
+            throw new RuntimeException('Не вдалося застосувати EXIF orientation 7 flip.');
+        }
+
         $rotated = imagerotate($image, -90, 0);
-        return $rotated ?: $image;
+        if (!$rotated instanceof GdImage) {
+            throw new RuntimeException('Не вдалося застосувати EXIF orientation 7 rotate.');
+        }
+
+        return $rotated;
     }
 
     if ($orientation === 8) {
         $rotated = imagerotate($image, 90, 0);
-        return $rotated ?: $image;
+        if (!$rotated instanceof GdImage) {
+            throw new RuntimeException('Не вдалося застосувати EXIF orientation 8.');
+        }
+
+        return $rotated;
     }
 
     return $image;
@@ -1149,7 +1377,17 @@ function create_resized_jpeg(string $source, string $destination, int $maxWidth,
     $newHeight = (int) round($height * ($newWidth / $width));
 
     $resized = imagecreatetruecolor($newWidth, $newHeight);
-    imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+    if (!$resized instanceof GdImage) {
+        imagedestroy($image);
+        throw new RuntimeException('Не вдалося створити GD canvas для зменшеної копії.');
+    }
+
+    if (!imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height)) {
+        imagedestroy($resized);
+        imagedestroy($image);
+        throw new RuntimeException('Не вдалося перемасштабувати JPEG-зображення.');
+    }
+
     if (!imagejpeg($resized, $destination, $quality)) {
         imagedestroy($resized);
         imagedestroy($image);
@@ -1184,7 +1422,24 @@ function create_oriented_resized_jpeg(string $source, string $destination, int $
     $newWidth = min($maxWidth, $width);
     $newHeight = (int) round($height * ($newWidth / $width));
     $resized = imagecreatetruecolor($newWidth, $newHeight);
-    imagecopyresampled($resized, $oriented, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+    if (!$resized instanceof GdImage) {
+        if ($oriented !== $image) {
+            imagedestroy($oriented);
+        }
+
+        imagedestroy($image);
+        throw new RuntimeException('Не вдалося створити GD canvas для зменшеної копії.');
+    }
+
+    if (!imagecopyresampled($resized, $oriented, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height)) {
+        imagedestroy($resized);
+        if ($oriented !== $image) {
+            imagedestroy($oriented);
+        }
+
+        imagedestroy($image);
+        throw new RuntimeException('Не вдалося перемасштабувати JPEG-зображення.');
+    }
 
     if (!imagejpeg($resized, $destination, $quality)) {
         imagedestroy($resized);
