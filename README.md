@@ -75,12 +75,13 @@ README.md                             основна інструкція зап
 AGENTS.md                             правила для AI/Codex-агента
 IMPLEMENTED_FEATURES.md               що вже реалізовано
 CHANGELOG.md                          історія змін версій
-BUGS.md                               відомі обмеження і потенційні баги
+docs/BUGS.md                          відомі обмеження і потенційні баги
 POST_MVP_ROADMAP.md                   майбутні задачі, не список уже реалізованого
 FIXES_APPLIED.md                      історія hardening-виправлень
 AUDIT_REPORT.md                       короткий підсумок останнього аудиту
 FULL_PROJECT_AUDIT.md                 детальний технічний аудит
-AUDIT_PROMPT.md                       промпт для повторного аудиту AI-агентом
+docs/AUDIT_PROMPT.md                  промпт для повторного аудиту AI-агентом
+BACKUP_RESTORE.md                     порядок backup і restore
 ```
 
 Apache або Nginx має відкривати тільки папку `public/`. Папки `app/`, `config/`, `database/`, `storage/`, `tools/` і markdown-документи не повинні бути доступні напряму через браузер.
@@ -296,6 +297,7 @@ sudo systemctl reload apache2
 - складний пароль адміністратора;
 - HTTPS через Let’s Encrypt або інший сертифікат;
 - HSTS автоматично додається застосунком для `APP_ENV=production` і HTTPS-запитів;
+- якщо HTTPS завершується на reverse proxy, додайте IP proxy у `TRUSTED_PROXIES`, щоб застосунок довіряв `X-Forwarded-Proto: https` тільки від цього proxy;
 - Apache/Nginx відкриває тільки `public/`;
 - `storage/` не входить у `DocumentRoot`;
 - у `public/uploads` не виконується PHP;
@@ -315,7 +317,21 @@ ServerTokens Prod
 ServerSignature Off
 ```
 
-Для HTTPS-production застосунок додає HSTS тільки на реальних HTTPS-запитах у `APP_ENV=production`. HTTP -> HTTPS redirect краще налаштовувати на рівні Apache/Nginx або reverse proxy, щоб не ламати локальний HTTP-режим.
+Для HTTPS-production застосунок додає HSTS на реальних HTTPS-запитах або на запитах від довіреного reverse proxy з `X-Forwarded-Proto: https`. HTTP -> HTTPS redirect краще налаштовувати на рівні Apache/Nginx або reverse proxy, щоб не ламати локальний HTTP-режим.
+
+Якщо TLS завершується на reverse proxy, у `config/config.php` вкажіть тільки IP-адреси proxy, яким можна довіряти:
+
+```php
+'TRUSTED_PROXIES' => ['127.0.0.1'],
+```
+
+Або задайте їх через змінну середовища, розділяючи кілька IP комами:
+
+```bash
+TRUSTED_PROXIES=127.0.0.1,10.0.0.10
+```
+
+Не додавайте в `TRUSTED_PROXIES` IP-адреси звичайних клієнтів або широкі мережі без потреби.
 
 ## Службові інструменти
 
@@ -373,7 +389,7 @@ php tools/regenerate_images.php --all --dry-run
 php tools/build_release.php
 ```
 
-На виході буде `dist/mygallery_v5.0.0_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/backup-файли або реальні фото з upload/storage.
+На виході буде `dist/mygallery_<VERSION>_release.zip`, наприклад `dist/mygallery_6.0.1_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/backup-файли або реальні фото з upload/storage.
 
 Приватний backup:
 
@@ -382,7 +398,7 @@ php tools/backup.php
 php tools/backup.php --include-config
 ```
 
-Без `--include-config` файл `config/database.php` не потрапляє в backup ZIP. Див. також `BACKUP_RESTORE.md`.
+Без `--include-config` файл `config/database.php` не потрапляє в backup ZIP. `tools/backup.php` відмовляється створювати backup усередині `public/`, щоб приватний ZIP випадково не став доступним через браузер. Див. також `BACKUP_RESTORE.md`.
 
 Web health-check доступний після входу в адмінку:
 
@@ -412,7 +428,7 @@ php tools/backup.php
 mysqldump -u gallery_user -p my_photo_gallery > backup.sql
 ```
 
-Backup не можна зберігати всередині `public/` і не можна комітити в Git. Детальний порядок restore описаний у `BACKUP_RESTORE.md`.
+Backup не можна зберігати всередині `public/` і не можна комітити в Git. `tools/backup.php` блокує `--output` у `public/`, але приватні backup-файли все одно треба зберігати поза `DocumentRoot`. Детальний порядок restore описаний у `BACKUP_RESTORE.md`.
 
 ## Передача ZIP-архіву
 
@@ -436,6 +452,7 @@ Backup не можна зберігати всередині `public/` і не �
 APP_URL=https://gallery.example.com
 APP_ENV=production
 APP_DEBUG=false
+TRUSTED_PROXIES=127.0.0.1
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=my_photo_gallery
@@ -449,11 +466,12 @@ DB_PASSWORD=strong_password
 
 - `IMPLEMENTED_FEATURES.md` — що вже реалізовано і не треба повторно планувати в roadmap.
 - `POST_MVP_ROADMAP.md` — майбутні задачі, розбиті за пріоритетами.
-- `BUGS.md` — відомі обмеження і потенційні баги.
+- `docs/BUGS.md` — відомі обмеження і потенційні баги.
 - `FIXES_APPLIED.md` — історія вже внесених hardening-виправлень.
 - `AUDIT_REPORT.md` — короткий підсумок останнього аудиту.
 - `FULL_PROJECT_AUDIT.md` — детальний аудит із findings і статусом виправлень.
-- `AUDIT_PROMPT.md` — готовий промпт для повторного аудиту AI-агентом.
+- `docs/AUDIT_PROMPT.md` — готовий промпт для повторного аудиту AI-агентом.
+- `BACKUP_RESTORE.md` — порядок backup і restore.
 - `AGENTS.md` — правила для AI/Codex-агента, який буде змінювати проєкт.
 
 ## Після встановлення

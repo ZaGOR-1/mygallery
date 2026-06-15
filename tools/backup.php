@@ -34,6 +34,65 @@ if (!is_dir($backupDir) && !mkdir($backupDir, 0755, true)) {
     exit(1);
 }
 
+function backup_normalize_path(string $path): string
+{
+    $path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path);
+
+    if (preg_match('/^[A-Za-z]:\\\\/', $path) !== 1 && !str_starts_with($path, DIRECTORY_SEPARATOR)) {
+        $path = getcwd() . DIRECTORY_SEPARATOR . $path;
+    }
+
+    $parts = [];
+    $prefix = '';
+
+    if (preg_match('/^[A-Za-z]:\\\\/', $path) === 1) {
+        $prefix = substr($path, 0, 3);
+        $path = substr($path, 3);
+    } elseif (str_starts_with($path, DIRECTORY_SEPARATOR)) {
+        $prefix = DIRECTORY_SEPARATOR;
+        $path = ltrim($path, DIRECTORY_SEPARATOR);
+    }
+
+    foreach (explode(DIRECTORY_SEPARATOR, $path) as $part) {
+        if ($part === '' || $part === '.') {
+            continue;
+        }
+
+        if ($part === '..') {
+            array_pop($parts);
+            continue;
+        }
+
+        $parts[] = $part;
+    }
+
+    return rtrim($prefix . implode(DIRECTORY_SEPARATOR, $parts), DIRECTORY_SEPARATOR);
+}
+
+function backup_path_is_inside(string $path, string $directory): bool
+{
+    $path = backup_normalize_path($path);
+    $directory = rtrim(backup_normalize_path($directory), DIRECTORY_SEPARATOR);
+    $pathForCompare = PHP_OS_FAMILY === 'Windows' ? strtolower($path) : $path;
+    $directoryForCompare = PHP_OS_FAMILY === 'Windows' ? strtolower($directory) : $directory;
+
+    return $pathForCompare === $directoryForCompare
+        || str_starts_with($pathForCompare, $directoryForCompare . DIRECTORY_SEPARATOR);
+}
+
+function backup_validate_output_path(string $output, string $root): void
+{
+    $publicPath = $root . DIRECTORY_SEPARATOR . 'public';
+    $outputPath = backup_normalize_path($output);
+
+    if (backup_path_is_inside($outputPath, $publicPath)) {
+        fwrite(STDERR, "Backup output must not be inside public/.\n");
+        exit(1);
+    }
+}
+
+backup_validate_output_path($output, $root);
+
 function backup_sql_value(mixed $value): string
 {
     if ($value === null) {

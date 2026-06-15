@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Blocked `tools/backup.php --output` paths inside `public/` so private backup ZIP files cannot be accidentally exposed by the web server.
+- Added trusted reverse proxy HTTPS detection through `TRUSTED_PROXIES` and `X-Forwarded-Proto: https`.
+- Updated admin health-check and README production notes for reverse proxy HTTPS.
+- Aligned health/self-check runtime validation with the documented PHP 8.2+ requirement.
+- Restored current maintenance docs and synchronized README/AGENTS documentation references.
+- Updated release ZIP documentation to use `dist/mygallery_<VERSION>_release.zip`.
+- Excluded empty legacy/non-runtime directories from clean release ZIP builds.
+- Expanded `POST_MVP_ROADMAP.md` with prioritized future feature candidates, complexity notes and verification steps.
 
 ## v6.0.1
 

@@ -36,6 +36,30 @@ function health_yes_no(bool $value): string
     return $value ? 'так' : 'ні';
 }
 
+function health_forwarded_proto_details(): string
+{
+    $forwardedProto = trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+
+    if ($forwardedProto === '') {
+        $forwardedProto = 'немає';
+    }
+
+    return 'trusted proxy: ' . health_yes_no(request_from_trusted_proxy()) . ', X-Forwarded-Proto: ' . $forwardedProto;
+}
+
+function health_trusted_proxy_https_status(): string
+{
+    if (trusted_forwarded_https_request()) {
+        return 'ok';
+    }
+
+    if (request_from_trusted_proxy()) {
+        return is_production() ? 'error' : 'warn';
+    }
+
+    return 'ok';
+}
+
 function health_legacy_original_count(): int
 {
     $dir = uploads_path('originals');
@@ -61,11 +85,13 @@ function health_legacy_original_count(): int
 }
 
 $runtimeRows = [];
-$runtimeRows[] = health_row('PHP version', version_compare(PHP_VERSION, '8.0.0', '>=') ? 'ok' : 'error', PHP_VERSION);
+$runtimeRows[] = health_row('PHP version', version_compare(PHP_VERSION, '8.2.0', '>=') ? 'ok' : 'error', PHP_VERSION . ' (required: 8.2+)');
 $runtimeRows[] = health_row('APP_ENV', is_production() ? 'ok' : 'warn', app_env());
 $runtimeRows[] = health_row('APP_DEBUG', app_debug() ? 'warn' : 'ok', app_debug() ? 'true' : 'false');
 $runtimeRows[] = health_row('APP_URL HTTPS', app_url_is_https() ? 'ok' : (is_production() ? 'error' : 'warn'), (string) app_config()['APP_URL']);
-$runtimeRows[] = health_row('Поточний запит HTTPS', is_https_request() ? 'ok' : (is_production() ? 'error' : 'warn'), health_yes_no(is_https_request()));
+$runtimeRows[] = health_row('Прямий HTTPS', direct_https_request() ? 'ok' : (is_production() && !trusted_forwarded_https_request() ? 'error' : 'warn'), health_yes_no(direct_https_request()));
+$runtimeRows[] = health_row('Trusted proxy HTTPS', health_trusted_proxy_https_status(), health_forwarded_proto_details());
+$runtimeRows[] = health_row('Ефективний HTTPS', is_https_request() ? 'ok' : (is_production() ? 'error' : 'warn'), health_yes_no(is_https_request()));
 $runtimeRows[] = health_row('upload_max_filesize', 'ok', (string) ini_get('upload_max_filesize'));
 $runtimeRows[] = health_row('post_max_size', 'ok', (string) ini_get('post_max_size'));
 $runtimeRows[] = health_row('memory_limit', 'ok', (string) ini_get('memory_limit'));

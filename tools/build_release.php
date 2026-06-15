@@ -51,6 +51,13 @@ function release_should_exclude(string $relative, bool $isDir): bool
         'backups',
         'vendor',
         'node_modules',
+        'alembic',
+        'app/bot',
+        'app/database',
+        'app/services',
+        'app/utils',
+        'scripts',
+        'tests',
         'storage/test_sessions',
     ];
 

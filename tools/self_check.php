@@ -153,6 +153,14 @@ function check_required_extensions(): void
     assert_true(empty($missing), 'Missing PHP extensions: ' . implode(', ', $missing));
 }
 
+function check_php_version(): void
+{
+    assert_true(
+        version_compare(PHP_VERSION, '8.2.0', '>='),
+        'PHP 8.2 or newer is required. Current version: ' . PHP_VERSION
+    );
+}
+
 function check_config_files(): void
 {
     assert_true(is_file(project_root_path('config' . DIRECTORY_SEPARATOR . 'config.php')), 'config/config.php missing.');
@@ -243,6 +251,7 @@ function check_gitkeep_files(): void
     }
 }
 
+check_php_version();
 check_required_extensions();
 check_config_files();
 check_required_directories();

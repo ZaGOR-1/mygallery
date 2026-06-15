@@ -269,10 +269,39 @@ function unlink_file_with_log(?string $path, string $context): bool
     return false;
 }
 
-function is_https_request(): bool
+function direct_https_request(): bool
 {
     return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
         || (($_SERVER['SERVER_PORT'] ?? '') === '443');
+}
+
+function request_from_trusted_proxy(): bool
+{
+    $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
+    $trustedProxies = app_config()['TRUSTED_PROXIES'] ?? [];
+
+    return is_string($remoteAddr)
+        && $remoteAddr !== ''
+        && is_array($trustedProxies)
+        && in_array($remoteAddr, $trustedProxies, true);
+}
+
+function forwarded_proto_is_https(): bool
+{
+    $forwardedProto = (string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '');
+    $proto = strtolower(trim(explode(',', $forwardedProto)[0] ?? ''));
+
+    return $proto === 'https';
+}
+
+function trusted_forwarded_https_request(): bool
+{
+    return request_from_trusted_proxy() && forwarded_proto_is_https();
+}
+
+function is_https_request(): bool
+{
+    return direct_https_request() || trusted_forwarded_https_request();
 }
 
 function session_cookie_options(): array

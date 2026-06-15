@@ -149,12 +149,14 @@ mygallery/
 ├── README.md
 ├── AGENTS.md
 ├── IMPLEMENTED_FEATURES.md
-├── BUGS.md
 ├── POST_MVP_ROADMAP.md
 ├── FIXES_APPLIED.md
 ├── AUDIT_REPORT.md
 ├── FULL_PROJECT_AUDIT.md
-└── AUDIT_PROMPT.md
+├── BACKUP_RESTORE.md
+└── docs/
+    ├── BUGS.md
+    └── AUDIT_PROMPT.md
 ```
 
 ## Правила для upload
@@ -304,17 +306,18 @@ SQL-файли portable і не містять `USE my_photo_gallery;`. README-�
 - `README.md` — як встановити, оновити, перенести, зробити backup і запустити tools.
 - `IMPLEMENTED_FEATURES.md` — що вже зроблено.
 - `POST_MVP_ROADMAP.md` — тільки майбутні задачі.
-- `BUGS.md` — відомі обмеження і потенційні баги.
+- `docs/BUGS.md` — відомі обмеження і потенційні баги.
 - `FIXES_APPLIED.md` — історія вже внесених виправлень.
 - `AUDIT_REPORT.md` — короткий актуальний summary аудиту.
 - `FULL_PROJECT_AUDIT.md` — детальний аудит із findings і статусом виправлень.
-- `AUDIT_PROMPT.md` — промпт для повторного аудиту AI-агентом.
+- `docs/AUDIT_PROMPT.md` — промпт для повторного аудиту AI-агентом.
+- `BACKUP_RESTORE.md` — порядок backup і restore.
 
 Якщо реалізуєш пункт із roadmap:
 
 1. прибери або онови його в `POST_MVP_ROADMAP.md`;
 2. додай у `IMPLEMENTED_FEATURES.md`;
-3. якщо це виправлення ризику — онови `BUGS.md`;
+3. якщо це виправлення ризику — онови `docs/BUGS.md`;
 4. якщо змінюється запуск або структура — онови `README.md`;
 5. якщо змінюються правила для майбутнього агента — онови `AGENTS.md`.
 
@@ -323,7 +326,7 @@ SQL-файли portable і не містять `USE my_photo_gallery;`. README-�
 Перед реалізацією великого завдання:
 
 1. Переглянь структуру репозиторію.
-2. Прочитай `README.md`, `IMPLEMENTED_FEATURES.md`, `BUGS.md` і `POST_MVP_ROADMAP.md`.
+2. Прочитай `README.md`, `IMPLEMENTED_FEATURES.md`, `docs/BUGS.md` і `POST_MVP_ROADMAP.md`.
 3. Склади короткий план.
 4. Перевір, які файли вже існують.
 5. Не видаляй наявну роботу без необхідності.
@@ -385,7 +388,7 @@ php tools/cleanup_orphans.php
 - секрети не потрапили до Git або release ZIP;
 - README відповідає актуальному стану проєкту;
 - AGENTS.md відповідає актуальному стану проєкту;
-- IMPLEMENTED_FEATURES/BUGS/ROADMAP не суперечать одне одному;
+- IMPLEMENTED_FEATURES/docs/BUGS/ROADMAP не суперечать одне одному;
 - описані всі невиконані перевірки або обмеження.
 
 ## Release hygiene
@@ -393,7 +396,7 @@ php tools/cleanup_orphans.php
 Не додавай у релізний архів `.git/`, `config/database.php`, завантажені JPEG, `*.log`, `sess_*`, backup-архіви або тимчасові файли. У порожніх runtime-директоріях залишай тільки `.gitkeep` і службові `.htaccess`, якщо вони потрібні.
 
 
-## V5 maintenance tools
+## Maintenance tools
 
 Після будь-яких змін у release/build/backup/upload логіці перевіряй:
 
