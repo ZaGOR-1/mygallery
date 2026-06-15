@@ -89,3 +89,28 @@ Never allow the release ZIP to contain:
 - `dist/`
 - `temp_*.php`
 - `*.zip`, `*.bak`, `*.tmp`
+
+## MyGallery AI audit workflow add-on
+
+When the task is an audit, use the project subagents in `.gemini/agents/` instead of doing one broad pass.
+
+Preferred audit agents:
+
+- `mygallery-code-auditor` for PHP bugs, architecture and maintainability.
+- `mygallery-security-auditor` for auth, CSRF, XSS, SQLi, uploads, share links and file access.
+- `mygallery-media-storage-auditor` for uploads, originals, thumbnails, WebP/AVIF, trash, album ZIP download and regenerate tools.
+- `mygallery-db-migration-auditor` for schema/migration consistency and MySQL/MariaDB compatibility.
+- `mygallery-release-auditor` for clean release ZIP, `.gitignore`, backups, secrets and private media exclusions.
+- `mygallery-docs-consistency-auditor` for README/CHANGELOG/ROADMAP/docs consistency.
+- `mygallery-test-planner` for practical regression and manual test plans.
+- `mygallery-fix-planner` for merging audit results into a prioritized implementation plan.
+
+Rules:
+
+- Do not edit application code during audit tasks.
+- During audit tasks, only create or update documentation files under `docs/`.
+- Check `git status --short` before any change. The uploaded v6.4.6 workspace may contain many uncommitted changes.
+- Do not treat the current working tree as clean unless Git confirms it.
+- Never expose or copy real secrets from `config/database.php`, logs, sessions, backups or private media.
+- Be especially careful with `download_album.php`, `share.php`, `public/admin/share.php`, upload processing, trash recovery, restore, backup and release builder.
+- If fixing code later, handle only one severity group at a time and keep changes small.

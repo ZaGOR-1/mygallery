@@ -6,6 +6,13 @@ define('APP_ENV', 'test');
 
 require_once dirname(__DIR__) . '/app/includes/functions.php';
 
+try {
+    db()->query('SELECT 1');
+    define('TESTS_DB_AVAILABLE', true);
+} catch (Throwable $e) {
+    define('TESTS_DB_AVAILABLE', false);
+}
+
 function assert_true(bool $condition, string $message): void {
     if (!$condition) {
         throw new RuntimeException("Assertion failed: $message");

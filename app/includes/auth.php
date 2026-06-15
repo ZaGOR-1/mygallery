@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'functions.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'auth_functions.php';
 
 function is_admin_logged_in(): bool
 {

@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 
+if (!defined('TESTS_DB_AVAILABLE') || !TESTS_DB_AVAILABLE) {
+    echo "  [SKIP] DB not available. ";
+    return;
+}
+
 // 1. Check if column exists in the database
 $stmt = db()->query("SHOW COLUMNS FROM photos");
 $columns = $stmt->fetchAll(PDO::FETCH_COLUMN);

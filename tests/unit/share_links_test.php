@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 
+if (!defined('TESTS_DB_AVAILABLE') || !TESTS_DB_AVAILABLE) {
+    echo "  [SKIP] DB not available. ";
+    return;
+}
+
 // Перевірка формату токена (32 символи hex)
 $token = bin2hex(random_bytes(16));
 assert_equals(32, strlen($token), 'Generated token must be 32 characters long');
