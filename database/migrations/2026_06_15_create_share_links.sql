@@ -1,4 +1,5 @@
-CREATE TABLE `share_links` (
+-- Idempotent migration: public share links for photos and albums.
+CREATE TABLE IF NOT EXISTS `share_links` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `token` VARCHAR(64) NOT NULL,
   `photo_id` INT UNSIGNED NULL,

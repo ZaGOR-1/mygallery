@@ -69,7 +69,11 @@ if ($action === 'save') {
             if (!empty($parsedTags)) {
                 foreach ($photoIds as $pid) {
                     $currentTags = get_photo_tags($pid);
-                    $combined = array_unique(array_merge($currentTags, $parsedTags));
+                    $currentTagNames = array_map(
+                        static fn (array $tag): string => (string) ($tag['name'] ?? ''),
+                        $currentTags
+                    );
+                    $combined = array_values(array_unique(array_filter(array_merge($currentTagNames, $parsedTags))));
                     sync_photo_tags($pid, $combined);
                 }
             }
@@ -123,7 +127,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
 
         <fieldset>
             <legend>Зміна альбому</legend>
-            <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.875rem;">
+            <p class="form-note">
                 Виберіть альбом, у який потрібно перемістити всі вибрані фотографії. 
                 Якщо ви нічого не виберете, альбоми залишаться без змін.
             </p>
@@ -141,9 +145,9 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             </label>
         </fieldset>
 
-        <fieldset style="margin-top: 2rem;">
+        <fieldset class="bulk-fieldset">
             <legend>Додавання тегів</legend>
-            <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.875rem;">
+            <p class="form-note">
                 Введіть теги через кому. Вони будуть <strong>додані</strong> до вже існуючих тегів кожної фотографії.
             </p>
             <label>
@@ -152,7 +156,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             </label>
         </fieldset>
 
-        <div style="margin-top: 2rem;">
+        <div class="form-actions">
             <button class="button" type="submit">Застосувати зміни</button>
         </div>
     </form>

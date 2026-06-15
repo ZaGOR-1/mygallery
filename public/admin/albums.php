@@ -142,7 +142,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
 
 <?php if ($editingAlbum): ?>
 <?php
-$stmt = db()->prepare('SELECT id, token FROM share_links WHERE album_id = ?');
+$stmt = db()->prepare('SELECT id, token, expires_at FROM share_links WHERE album_id = ? ORDER BY created_at DESC, id DESC');
 $stmt->execute([$editingAlbum['id']]);
 $albumShares = $stmt->fetchAll();
 ?>
@@ -151,10 +151,19 @@ $albumShares = $stmt->fetchAll();
     <?php if ($albumShares): ?>
         <ul class="admin-share-list">
         <?php foreach ($albumShares as $link): ?>
+            <?php
+            $expiresAt = (string) ($link['expires_at'] ?? '');
+            $isExpired = $expiresAt !== '' && strtotime($expiresAt) < time();
+            ?>
             <li>
-                <a href="<?= h(url('share.php?token=' . $link['token'])) ?>" target="_blank">
-                    <?= h(url('share.php?token=' . $link['token'])) ?>
-                </a>
+                <div class="share-link-details">
+                    <a href="<?= h(url('share.php?token=' . $link['token'])) ?>" target="_blank">
+                        <?= h(url('share.php?token=' . $link['token'])) ?>
+                    </a>
+                    <span class="share-link-status <?= $isExpired ? 'is-expired' : '' ?>">
+                        <?= $expiresAt === '' ? 'Без строку дії' : ($isExpired ? 'Застаріло: ' : 'Діє до: ') . h($expiresAt) ?>
+                    </span>
+                </div>
                 <form method="post" action="<?= h(url('admin/share.php')) ?>" data-confirm="Видалити посилання?">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="revoke">
@@ -173,6 +182,16 @@ $albumShares = $stmt->fetchAll();
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="create_album_share">
         <input type="hidden" name="album_id" value="<?= h((string)$editingAlbum['id']) ?>">
+        <label class="share-expiry-field">
+            Строк дії
+            <select name="expires_in">
+                <option value="1">1 день</option>
+                <option value="7">7 днів</option>
+                <option value="30" selected>30 днів</option>
+                <option value="90">90 днів</option>
+                <option value="0">Без строку дії</option>
+            </select>
+        </label>
         <button class="button secondary" type="submit">Створити нове посилання</button>
     </form>
 </section>

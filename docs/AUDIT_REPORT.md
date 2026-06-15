@@ -1,16 +1,22 @@
 # Audit Report
 
-This file contains the summary of the latest security and code quality audits.
+Актуально для MyGallery v6.1.0 після виправлення medium issues з `FULL_PROJECT_AUDIT.md`.
 
-## Latest Audit Summary (v6.0.2)
-- **Critical Issues:** 0
-- **High Issues:** 2
-- **Medium Issues:** 1
-- **Low Issues:** 1
-- **Informational:** 2
+## Latest Audit Summary
 
-The project maintains excellent overall security (SQLi, XSS, and CSRF protection are flawless). However, two High-priority issues were found in the backup/restore tools:
-1. **Zip Slip (Path Traversal):** `tools/restore.php` does not validate paths during ZIP extraction, which could allow a manipulated backup file to write outside the target directory.
-2. **Missing `share_links` Table in Backup:** The newly added `share_links` table was omitted from the SQL export list in `tools/backup.php` and `admin/health.php`, leading to data loss on restore.
+| Severity | Count |
+|---|---:|
+| Critical | 0 |
+| High | 0 |
+| Medium | 0 |
+| Low | 6 |
+| Informational | 7 |
 
-Please refer to [FULL_PROJECT_AUDIT.md](file:///C:/wamp64/domains/mygallery/FULL_PROJECT_AUDIT.md) for the detailed project audit and [SECURITY_AUDIT.md](file:///C:/wamp64/domains/mygallery/SECURITY_AUDIT.md) for the specialized security review.
+## Що виправлено після повного аудиту
+
+- Видалено тимчасовий `temp_migrate.php` з кореня репозиторію.
+- Для приватних share links додано строк дії з дефолтом 30 днів.
+- Залишкові inline `style` / `onclick` у `edit.php`, `bulk_edit.php`, `gallery.php` і `share.php` замінено на CSS-класи та `data-confirm`.
+- README, AGENTS, CHANGELOG і audit docs синхронізовано з фактичною структурою, PHP-версією та лімітами з `config/config.php`.
+
+Деталі див. у `FULL_PROJECT_AUDIT.md` та `docs/SECURITY_AUDIT.md`.

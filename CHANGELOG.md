@@ -14,19 +14,20 @@
 - Restored current maintenance docs and synchronized README/AGENTS documentation references.
 - Updated release ZIP documentation to use `dist/mygallery_<VERSION>_release.zip`.
 - Excluded empty legacy/non-runtime directories from clean release ZIP builds.
-- Expanded `POST_MVP_ROADMAP.md` with prioritized future feature candidates, complexity notes and verification steps.
+- Expanded `ROADMAP.md` with prioritized future feature candidates, complexity notes and verification steps.
+- Added default expiry controls for private photo and album share links.
+- Removed the leftover temporary migration/debug script from the repository root.
+- Moved remaining inline styles and inline confirm handlers from share/edit/bulk/gallery views into shared CSS/JS patterns.
+- Synchronized README, AGENTS and audit documentation with the current docs paths, PHP version and image limits.
+- Fixed `public/photo.php` previous/next navigation for PDO native prepared statements by avoiding reused named placeholders.
+- Cleaned a minor duplicated `return true` in file cleanup helper.
+- Rebuilt full clean V6 release ZIP from the stable V6 codebase.
 
 ## v6.0.2
 
 - Patched a Zip Slip (Path Traversal) vulnerability in `tools/restore.php`.
 - Added the missing `share_links` table to `tools/backup.php`, `admin/health.php`, and `tools/self_check.php` to prevent data loss.
 - Fixed a `500 Internal Server Error` in `admin/index.php` and `gallery.php` caused by an incorrect column name `photos.filesize` (corrected to `photos.file_size`).
-
-## v6.0.1
-
-- Fixed `public/photo.php` previous/next navigation for PDO native prepared statements by avoiding reused named placeholders.
-- Cleaned a minor duplicated `return true` in file cleanup helper.
-- Rebuilt full clean V6 release ZIP from the stable V6 codebase.
 
 ## v6.0.0 - Tags, Stats and Error Pages
 
@@ -70,9 +71,9 @@
 - Strengthened production checks, admin sessions, login limiter and GD error handling.
 - Cleaned release ZIP generation to avoid shipping private files.
 
-## v6.0.1-docs-cleanup
+## v6.1.0-docs-cleanup
 
-- Synchronized Markdown documentation with the actual V6.0.1 codebase.
+- Synchronized Markdown documentation with the actual V6.1.0 codebase.
 - Added missing documentation files referenced by README/AGENTS.
 - Filled BUGS.md with current known limitations and operational notes.
 - Removed duplicated AUDIT.md in favor of AUDIT_PROMPT.md.

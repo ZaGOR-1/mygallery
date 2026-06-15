@@ -23,13 +23,13 @@
 - responsive images через `srcset`/`sizes`;
 - CLI tools для setup, self-check, cleanup, legacy migration і trash recovery.
 
-Перед плануванням нової фічі перевір `IMPLEMENTED_FEATURES.md`, щоб не реалізовувати повторно те, що вже є.
+Перед плануванням нової фічі перевір `docs/IMPLEMENTED_FEATURES.md`, щоб не реалізовувати повторно те, що вже є.
 
 ## Технології
 
 Використовуй:
 
-- PHP 8.4 або новіший (усі CLI-команди запускай через `C:\wamp64\bin\php\php8.4.0\php.exe`);
+- PHP 8.2 або новіший (локальні CLI-команди в цьому WampServer запускай через `C:\wamp64\bin\php\php8.3.14\php.exe`);
 - Apache 2.4;
 - MySQL 8.0 або MariaDB 10.6+;
 - PDO;
@@ -148,10 +148,10 @@ mygallery/
 │   └── setup.php
 ├── README.md
 ├── AGENTS.md
-├── IMPLEMENTED_FEATURES.md
-├── POST_MVP_ROADMAP.md
-├── BACKUP_RESTORE.md
+├── ROADMAP.md
 └── docs/
+    ├── IMPLEMENTED_FEATURES.md
+    ├── BACKUP_RESTORE.md
     ├── BUGS.md
     ├── AUDIT_PROMPT.md
     ├── AUDIT_REPORT.md
@@ -171,7 +171,7 @@ mygallery/
 - Optimized large version зберігай у `public/uploads/large`.
 - Thumbnail зберігай у `public/uploads/thumbnails`.
 - Не зберігай нові оригінали в `public/uploads/originals`.
-- Максимальний розмір одного файла — 30 МБ.
+- Максимальний розмір одного файла — 50 МБ.
 - Максимальні габарити — 8000x8000 або 50 МП.
 - Виправляй EXIF Orientation.
 - Перевіряй права запису.
@@ -223,7 +223,10 @@ PDO::ATTR_EMULATE_PREPARES => false,
 - `admins`;
 - `albums`;
 - `photos`;
-- `login_attempts`.
+- `login_attempts`;
+- `tags`;
+- `photo_tags`;
+- `share_links`.
 
 SQL-файли portable і не містять `USE my_photo_gallery;`. README-команди мають явно передавати назву БД у CLI.
 
@@ -300,18 +303,18 @@ SQL-файли portable і не містять `USE my_photo_gallery;`. README-�
 Підтримуй документи в актуальному стані:
 
 - `README.md` — як встановити, оновити, перенести, зробити backup і запустити tools.
-- `IMPLEMENTED_FEATURES.md` — що вже зроблено.
-- `POST_MVP_ROADMAP.md` — тільки майбутні задачі.
+- `docs/IMPLEMENTED_FEATURES.md` — що вже зроблено.
+- `ROADMAP.md` — тільки майбутні задачі.
 - `docs/BUGS.md` — відомі обмеження і потенційні баги.
 - `docs/AUDIT_REPORT.md` — короткий актуальний summary аудиту.
 - `docs/SECURITY_AUDIT.md` — детальний аудит безпеки.
 - `docs/AUDIT_PROMPT.md` — промпт для повторного аудиту AI-агентом.
-- `BACKUP_RESTORE.md` — порядок backup і restore.
+- `docs/BACKUP_RESTORE.md` — порядок backup і restore.
 
 Якщо реалізуєш пункт із roadmap:
 
-1. прибери або онови його в `POST_MVP_ROADMAP.md` або `ROADMAP.md`;
-2. додай у `IMPLEMENTED_FEATURES.md` та `CHANGELOG.md`;
+1. прибери або онови його в `ROADMAP.md`;
+2. додай у `docs/IMPLEMENTED_FEATURES.md` та `CHANGELOG.md`;
 3. якщо це виправлення ризику — онови `docs/BUGS.md`;
 4. якщо змінюється запуск або структура — онови `README.md`;
 5. якщо змінюються правила для майбутнього агента — онови `AGENTS.md`.
@@ -321,7 +324,7 @@ SQL-файли portable і не містять `USE my_photo_gallery;`. README-�
 Перед реалізацією великого завдання:
 
 1. Переглянь структуру репозиторію.
-2. Прочитай `README.md`, `IMPLEMENTED_FEATURES.md`, `docs/BUGS.md` і `POST_MVP_ROADMAP.md`.
+2. Прочитай `README.md`, `docs/IMPLEMENTED_FEATURES.md`, `docs/BUGS.md` і `ROADMAP.md`.
 3. Склади короткий план.
 4. Перевір, які файли вже існують.
 5. Не видаляй наявну роботу без необхідності.

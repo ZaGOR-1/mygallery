@@ -21,4 +21,5 @@ This file tracks the implemented features for the MyGallery project.
 - Internal refactoring (Stage 3): Added lightweight CLI tests for core functions and exclusions
 - Internal refactoring (Stage 4): Unified admin form actions, ID reading, and redirect behavior
 - Duplicate Detection: Added `original_sha256` column to `photos` table to prevent uploading the same exact image file twice
-- Shareable Private Links: Generate secure tokens to share a specific photo or entire album via `share.php` without granting admin access
+- Shareable Private Links: Generate secure expiring tokens to share a specific photo or entire album via `share.php` without granting admin access
+- CSP-friendly UI cleanup: share/edit/bulk/gallery views use shared CSS classes and `data-confirm` handlers instead of inline styles or inline JavaScript

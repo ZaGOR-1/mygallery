@@ -71,6 +71,10 @@ function release_should_exclude(string $relative, bool $isDir): bool
         return true;
     }
 
+    if (!$isDir && preg_match('/(^|\/)temp_[^\/]*\.php$/i', $relative)) {
+        return true;
+    }
+
     if (preg_match('/(^|\/)sess_[^\/]*$/', $relative)) {
         return true;
     }
@@ -125,6 +129,7 @@ function release_forbidden_reason(string $entry): ?string
         '#(^|/)\.git(/|$)#' => '.git не можна додавати в release ZIP',
         '#(^|/)config/database\.php$#' => 'config/database.php містить локальні доступи',
         '#(^|/)\.env$#' => '.env містить секрети',
+        '#(^|/)temp_[^/]*\.php$#i' => 'тимчасові PHP-міграції не можна додавати в release ZIP',
         '#(^|/)sess_[^/]*$#' => 'session-файли не можна додавати в ZIP',
         '#\.(log|bak|backup|tmp)$#i' => 'тимчасові/лог/backup-файли не можна додавати в ZIP',
         '#(^|/)storage/originals/.*\.(jpe?g|png|webp|avif)$#i' => 'оригінали фото не можна додавати в release ZIP',

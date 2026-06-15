@@ -10,6 +10,8 @@ require_once dirname(__DIR__, 2) . '/tools/build_release.php';
 assert_true(release_should_exclude('.git/config', false), '.git should be excluded');
 assert_true(release_should_exclude('config/database.php', false), 'database.php should be excluded');
 assert_true(release_should_exclude('.env', false), '.env should be excluded');
+assert_true(release_should_exclude('temp_migrate.php', false), 'temp_migrate.php should be excluded');
+assert_true(release_should_exclude('temp_anything.php', false), 'temp_*.php should be excluded');
 
 // Sessions
 assert_true(release_should_exclude('storage/sessions/sess_123abc', false), 'session files should be excluded');
@@ -34,6 +36,7 @@ assert_false(release_should_exclude('public/uploads/originals/.htaccess', false)
 // release_forbidden_reason (secondary safety check)
 assert_true(release_forbidden_reason('mygallery/config/database.php') !== null, 'database.php forbidden');
 assert_true(release_forbidden_reason('mygallery/.env') !== null, '.env forbidden');
+assert_true(release_forbidden_reason('mygallery/temp_migrate.php') !== null, 'temp_migrate.php forbidden');
 assert_true(release_forbidden_reason('mygallery/public/uploads/large/test.jpg') !== null, 'large/test.jpg forbidden');
 assert_true(release_forbidden_reason('mygallery/storage/originals/test.jpg') !== null, 'storage/originals/test.jpg forbidden');
 

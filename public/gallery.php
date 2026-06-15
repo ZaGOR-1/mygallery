@@ -160,7 +160,7 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
                     <div class="tag-list card-tags" aria-label="Теги фотографії">
                         <?php foreach ($photoTags as $tag): ?>
                             <?php if ($isSharedView): ?>
-                                <span class="tag-pill" style="cursor: default; opacity: 0.8;"><?= h($tag['name']) ?></span>
+                                <span class="tag-pill tag-pill-static"><?= h($tag['name']) ?></span>
                             <?php else: ?>
                                 <a class="tag-pill" href="<?= h(url('gallery.php?tag_id=' . (int) $tag['id'])) ?>"><?= h($tag['name']) ?></a>
                             <?php endif; ?>

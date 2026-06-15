@@ -16,8 +16,7 @@ CREATE TABLE IF NOT EXISTS `albums` (
   `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_albums_name` (`name`),
-  KEY `idx_albums_cover_photo_id` (`cover_photo_id`),
-  CONSTRAINT `fk_albums_cover_photo_id` FOREIGN KEY (`cover_photo_id`) REFERENCES `photos` (`id`) ON DELETE SET NULL
+  KEY `idx_albums_cover_photo_id` (`cover_photo_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `photos` (
@@ -53,6 +52,23 @@ CREATE TABLE IF NOT EXISTS `photos` (
   FULLTEXT KEY `idx_photos_admin_search_fulltext` (`title`, `description`, `original_name`),
   CONSTRAINT `fk_photos_album_id` FOREIGN KEY (`album_id`) REFERENCES `albums` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Add the album cover foreign key after both albums and photos exist.
+SET @constraint_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'albums'
+    AND CONSTRAINT_NAME = 'fk_albums_cover_photo_id'
+);
+SET @sql := IF(
+  @constraint_exists = 0,
+  'ALTER TABLE `albums` ADD CONSTRAINT `fk_albums_cover_photo_id` FOREIGN KEY (`cover_photo_id`) REFERENCES `photos` (`id`) ON DELETE SET NULL',
+  'SELECT ''fk_albums_cover_photo_id already exists'''
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS `tags` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,

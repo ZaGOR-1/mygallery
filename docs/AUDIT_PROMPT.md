@@ -1,482 +1,196 @@
-Ти — senior PHP architect, backend auditor, security reviewer і QA engineer. Твоє завдання — зробити повний технічний аудит PHP-проєкту MyGallery V6.0.1.
-
-Проєкт — персональна фотогалерея на чистому PHP без Laravel/React/Composer. У ньому є публічна галерея, адмінка, upload JPEG, EXIF, альбоми, теги, приватні оригінали, share links, backup/restore tools, release builder, tests і security-hardening.
+Ти — senior PHP code auditor, QA engineer і backend reviewer. Проаналізуй повністю мій PHP-проєкт MyGallery на баги, помилки, потенційні баги, логічні проблеми, security-ризики, проблеми з базою даних, міграціями, документацією і production-ready станом.
 
 ВАЖЛИВО:
 
 * Не виправляй код автоматично.
 * Не видаляй файли.
-* Не змінюй логіку проєкту.
+* Не змінюй структуру проєкту.
 * Єдина дозволена зміна — створити або оновити файл `FULL_PROJECT_AUDIT.md` у корені проєкту.
-* Якщо `FULL_PROJECT_AUDIT.md` уже існує — повністю перезапиши його новим актуальним аудитом.
-* Не копіюй у звіт реальні паролі, токени, cookie, session ID, CSRF-токени або приватні ключі. Якщо знайдеш секрет — вкажи тільки файл, рядок і тип проблеми, але не саме значення.
-* Не пиши “усе ідеально”, якщо не перевірив конкретно. Навіть якщо Critical/High немає, окремо вкажи Low/Info/Production risks, якщо вони є.
-* Розрізняй робочу папку проєкту і clean release ZIP. Наявність `.git`, `config/database.php`, фото, логів і сесій у робочій папці не завжди є багом, але в release ZIP це критично/High.
+* Якщо файл уже існує — повністю перезапиши його новим актуальним аудитом.
+* Не копіюй у звіт реальні паролі, токени, session ID, CSRF-токени або приватні ключі. Якщо знайдеш секрет — вкажи тільки файл, рядок і тип проблеми.
 
-Поточна структура і функціонал, які треба врахувати:
-
-## Основні папки
-
-Перевір:
-
-* `app/includes/`
-
-  * `auth.php`
-  * `auth_functions.php`
-  * `csrf.php`
-  * `db.php`
-  * `file_functions.php`
-  * `functions.php`
-  * `photo_service.php`
-  * `header.php`
-  * `footer.php`
-
-* `public/`
-
-  * `index.php`
-  * `gallery.php`
-  * `photo.php`
-  * `share.php`
-  * `404.php`
-  * `500.php`
-  * `.htaccess`
-
-* `public/admin/`
-
-  * `index.php`
-  * `login.php`
-  * `logout.php`
-  * `upload.php`
-  * `edit.php`
-  * `delete.php`
-  * `albums.php`
-  * `download.php`
-  * `health.php`
-  * `stats.php`
-  * `share.php`
-
-* `tools/`
-
-  * `setup.php`
-  * `self_check.php`
-  * `build_release.php`
-  * `backup.php`
-  * `verify_backup.php`
-  * `restore.php`
-  * `cleanup_orphans.php`
-  * `cleanup_runtime.php`
-  * `migrate_legacy_originals.php`
-  * `recover_trash.php`
-  * `regenerate_images.php`
-  * `backfill_sha256.php`
-  * `lib/SimpleZipWriter.php`
-
-* `database/`
-
-  * `schema.sql`
-  * `migrations/2026_06_12_add_albums.sql`
-  * `migrations/2026_06_13_hardening.sql`
-  * `migrations/2026_06_13_add_tags.sql`
-  * `migrations/2026_06_15_add_original_sha256.sql`
-  * `migrations/2026_06_15_add_session_version.sql`
-  * `migrations/2026_06_15_create_share_links.sql`
-
-* `tests/`
-
-  * `run.php`
-  * `bootstrap.php`
-  * `unit/exif_test.php`
-  * `unit/paths_test.php`
-  * `unit/release_exclusions_test.php`
-  * `unit/tags_test.php`
-
-* документація:
-
-  * `README.md`
-  * `AGENTS.md`
-  * `CHANGELOG.md`
-  * `ROADMAP.md`
-  * `IMPLEMENTED_FEATURES.md`
-  * `FIXES_APPLIED.md`
-  * `AUDIT_REPORT.md`
-  * `SECURITY_AUDIT.md`
-  * `BACKUP_RESTORE.md`
-  * `docs/AUDIT_PROMPT.md`
-  * `docs/AUDIT_SECURITY_PROMT.md`
-
-## Поточні фічі, які треба перевірити
+Проєкт: MyGallery — PHP-фотогалерея на чистому PHP. У проєкті є публічна галерея, адмінка, завантаження JPEG, EXIF, альбоми, теги, share links, приватні оригінали, backup/restore tools, release builder, health check, self check, error pages і документація.
 
 Перевір повністю:
 
-* JPEG upload;
-* EXIF parsing;
-* EXIF orientation 1–8;
-* private originals у `storage/originals`;
-* `large` і `thumbnail` версії фото;
-* duplicate detection через `original_sha256`;
-* альбоми;
-* теги;
-* пошук;
-* FULLTEXT search + fallback на `LIKE`;
-* фільтри за альбомом, тегом, камерою, датою;
-* photo detail page;
-* prev/next navigation на `photo.php`;
-* admin login/logout;
-* session timeout;
-* admin session version invalidation;
+1. PHP-код:
+
+* синтаксис;
+* логічні баги;
+* дублювання коду;
+* неправильні `return`, `redirect`, `try/catch`;
+* некоректну обробку помилок;
+* місця, де код може впасти на edge cases;
+* змішування HTML/PHP/SQL;
+* якість архітектури.
+
+2. Security:
+
+* SQL injection;
+* XSS;
 * CSRF;
-* login rate limiter;
-* admin stats;
-* admin health-check;
-* admin download original;
-* public/private share links через `share_links`;
-* `public/share.php`;
-* `public/admin/share.php`;
-* backup;
-* verify backup;
-* restore;
-* build release;
-* cleanup runtime;
-* cleanup orphans;
-* recover trash;
-* regenerate images;
-* backfill sha256;
-* self check;
-* tests.
+* auth bypass;
+* IDOR/BOLA;
+* path traversal;
+* session fixation/hijacking;
+* upload PHP-shell;
+* прямий доступ до приватних файлів;
+* безпеку `admin/download.php`;
+* безпеку `share.php`;
+* brute force login;
+* username enumeration;
+* leakage secrets;
+* production debug leaks.
 
-## Обов’язково перевір release/build workflow
+3. Upload/images:
 
-У робочій папці можуть бути:
+* JPEG validation;
+* MIME type;
+* `getimagesize`;
+* `is_uploaded_file`;
+* random file names;
+* EXIF orientation;
+* memory limit;
+* GD errors;
+* large/thumbnail generation;
+* private originals;
+* duplicate detection;
+* delete/recover/regenerate;
+* orphan files.
 
-* `.git/`;
-* `config/database.php`;
-* фото;
-* logs;
-* sessions;
-* backups;
-* `dist/`.
+4. Database:
 
-Це нормально для development, але треба перевірити, що `tools/build_release.php` створює чистий ZIP і в clean release НЕ потрапляють:
+* `schema.sql`;
+* усі migrations;
+* чи міграції idempotent;
+* чи schema відповідає PHP-коду;
+* foreign keys;
+* indexes;
+* constraints;
+* `photos`, `albums`, `tags`, `photo_tags`, `share_links`, `admins`, `login_attempts`;
+* `original_sha256`;
+* `session_version`;
+* FULLTEXT search;
+* MySQL/MariaDB compatibility;
+* UTF-8 / українські символи.
+
+5. Admin:
+
+* login/logout;
+* CSRF на POST-діях;
+* upload/edit/delete;
+* bulk actions;
+* albums;
+* tags;
+* stats;
+* health;
+* download original;
+* share link management;
+* чи всі admin-сторінки захищені авторизацією.
+
+6. Public pages:
+
+* `index.php`;
+* `gallery.php`;
+* `photo.php`;
+* `share.php`;
+* `404.php`;
+* `500.php`;
+* пошук;
+* фільтри;
+* pagination;
+* prev/next navigation;
+* неіснуючі ID;
+* expired/revoked share links.
+
+7. Tools:
+
+* `tools/setup.php`;
+* `tools/self_check.php`;
+* `tools/build_release.php`;
+* `tools/backup.php`;
+* `tools/verify_backup.php`;
+* `tools/restore.php`;
+* `tools/cleanup_orphans.php`;
+* `tools/cleanup_runtime.php`;
+* `tools/regenerate_images.php`;
+* `tools/recover_trash.php`;
+* `tools/backfill_sha256.php`;
+* чи вони безпечні;
+* чи не видаляють зайве;
+* чи не кладуть backup у public;
+* чи build_release збирає чистий ZIP.
+
+8. Release ZIP:
+   Запусти `php tools/build_release.php` і перевір, що в release ZIP немає:
 
 * `.git`;
 * `.env`;
 * `config/database.php`;
-* `storage/logs/*.log`;
-* `storage/sessions/sess_*`;
-* `storage/test_sessions/sess_*`;
+* `*.log`;
+* `sess_*`;
+* приватних фото;
+* backup ZIP;
+* `dist`;
 * `storage/originals/*.jpg`;
-* `public/uploads/large/*.jpg`;
-* `public/uploads/thumbnails/*.jpg`;
-* `backups/*.zip`;
-* `dist/*.zip`;
+* `public/uploads/**/*.jpg`;
 * `*.bak`;
 * `*.tmp`;
-* приватні архіви;
-* runtime-файли.
+* тимчасових файлів типу `temp_*.php`.
 
-## 1. Архітектурний аудит
-
-Перевір:
-
-* чи структура `app/public/config/storage/tools/database/tests/docs` логічна;
-* чи не занадто великий `functions.php`;
-* чи правильно винесена логіка в `auth_functions.php`, `db.php`, `file_functions.php`, `photo_service.php`;
-* чи немає змішування HTML, SQL і бізнес-логіки там, де це вже варто винести;
-* чи не дублюється логіка між `gallery.php`, `admin/index.php`, `share.php`;
-* чи не треба краще розділити public/admin/share/download/backup/restore;
-* чи не з’явилися “напівфреймворкові” складні рішення, які погіршують студентську простоту проєкту;
-* чи документація відповідає фактичній архітектурі.
-
-## 2. Security audit
-
-Перевір:
-
-* SQL injection;
-* XSS: stored, reflected, DOM-based;
-* CSRF;
-* path traversal;
-* IDOR/BOLA;
-* auth bypass;
-* session fixation;
-* session hijacking;
-* weak cookie settings;
-* username enumeration;
-* timing attacks;
-* brute force;
-* upload PHP/web-shell;
-* double extensions;
-* MIME spoofing;
-* EXIF risks;
-* direct access до private originals;
-* access до `storage`, `config`, `database`, `.git`, backups;
-* безпеку `admin/download.php`;
-* безпеку `share.php` і токенів;
-* чи share links не дають доступу до чужих фото/альбомів;
-* чи expired share links реально блокуються;
-* чи `admin/share.php` має CSRF і auth;
-* чи backup ZIP не може бути створений у `public/`;
-* чи restore не дає path traversal через ZIP entries;
-* чи `tools/build_release.php` не пропускає приватні файли;
-* чи `APP_DEBUG=false` у production;
-* HTTPS/HSTS;
-* security headers;
-* cache headers для admin;
-* залежність від `.htaccess`, особливо якщо деплой на Nginx.
-
-## 3. Code quality audit
-
-Перевір:
-
-* дублювання коду;
-* довгі функції;
-* складні SQL-builder-и;
-* неймінг;
-* типізацію;
-* обробку винятків;
-* `try/catch`;
-* місця з `@unlink`, `@rename`, `@copy`;
-* чи не приховуються важливі помилки;
-* чи всі `PDOException` обробляються нормально;
-* чи немає неправильних `return`, dead code, дубльованих умов;
-* чи не порушені `declare(strict_types=1)`;
-* чи немає змішаних стилів коду.
-
-## 4. Database audit
-
-Перевір:
-
-* `schema.sql`;
-* усі міграції;
-* відповідність PHP-коду схемі;
-* `photos`;
-* `albums`;
-* `admins`;
-* `login_attempts`;
-* `tags`;
-* `photo_tags`;
-* `share_links`;
-* `original_sha256`;
-* `session_version`;
-* foreign keys;
-* indexes;
-* unique constraints;
-* nullable поля;
-* FULLTEXT indexes;
-* idempotency міграцій;
-* чи всі міграції можна безпечно запускати повторно;
-* чи `2026_06_15_add_original_sha256.sql`, `2026_06_15_add_session_version.sql`, `2026_06_15_create_share_links.sql` не впадуть при повторному запуску;
-* чи `schema.sql` і migrations не роз’їхалися;
-* чи немає конфліктів MySQL/MariaDB;
-* charset/collation/UTF-8.
-
-## 5. Bug / potential bug audit
-
-Перевір edge cases:
-
-* порожня галерея;
-* фото без EXIF;
-* фото без опису;
-* фото без альбому;
-* фото без тегів;
-* неіснуючий `photo_id`;
-* неіснуючий `album_id`;
-* неіснуючий `tag`;
-* expired share link;
-* share link на видалене фото;
-* share link на видалений альбом;
-* дубль фото через `original_sha256`;
-* повторний upload того самого JPEG;
-* дуже великий JPEG;
-* пошкоджений JPEG;
-* JPEG із неправильним MIME;
-* `photo.jpg.php`;
-* українські назви, теги й описи;
-* дефіси в пошуку;
-* короткі слова в FULLTEXT;
-* pagination при фільтрах;
-* prev/next при активних фільтрах;
-* delete photo + tags + share links;
-* delete album;
-* rename album;
-* orphan files;
-* trash recovery;
-* regenerate images, якщо оригінал відсутній;
-* backup/restore на Windows;
-* build release на Windows;
-* restore ZIP із небезпечними шляхами;
-* права на директорії.
-
-## 6. Tools audit
-
-Окремо перевір:
-
-* `tools/setup.php`
-
-  * створення адміна;
-  * пароль через env/stdin;
-  * session_version;
-
-* `tools/self_check.php`
-
-  * чи перевіряє всі потрібні PHP extensions;
-  * чи перевіряє БД;
-  * чи перевіряє таблиці/колонки;
-  * чи перевіряє writable directories;
-
-* `tools/build_release.php`
-
-  * clean ZIP;
-  * exclusions;
-  * nested zip/backups;
-  * dist/backups/storage/public uploads;
-  * Windows paths;
-
-* `tools/backup.php`
-
-  * чи backup не в public;
-  * чи не світить секрети;
-  * чи manifest коректний;
-
-* `tools/verify_backup.php`
-
-  * чи реально перевіряє manifest і файли;
-
-* `tools/restore.php`
-
-  * чи безпечний restore;
-  * path traversal;
-  * overwrite behavior;
-  * confirmation;
-  * DB import;
-
-* `tools/cleanup_orphans.php`;
-
-* `tools/cleanup_runtime.php`;
-
-* `tools/migrate_legacy_originals.php`;
-
-* `tools/recover_trash.php`;
-
-* `tools/regenerate_images.php`;
-
-* `tools/backfill_sha256.php`.
-
-## 7. Tests audit
-
-Перевір:
-
-* `tests/run.php`;
-* `tests/bootstrap.php`;
-* `tests/unit/exif_test.php`;
-* `tests/unit/paths_test.php`;
-* `tests/unit/release_exclusions_test.php`;
-* `tests/unit/tags_test.php`.
-
-Оціни:
-
-* чи достатньо тестів;
-* що вони реально покривають;
-* що треба додати;
-* чи тести не залежать від реальної БД без потреби;
-* чи можна запускати їх на Windows/WampServer;
-* які regression tests треба додати для share links, duplicate detection, backup/restore, build release.
-
-## 8. Documentation audit
-
-Перевір:
+9. Documentation:
+   Перевір:
 
 * `README.md`;
-* `AGENTS.md`;
 * `CHANGELOG.md`;
+* `docs/BUGS.md`;
 * `ROADMAP.md`;
-* `IMPLEMENTED_FEATURES.md`;
-* `FIXES_APPLIED.md`;
-* `AUDIT_REPORT.md`;
-* `SECURITY_AUDIT.md`;
-* `BACKUP_RESTORE.md`;
-* `docs/AUDIT_PROMPT.md`;
-* `docs/AUDIT_SECURITY_PROMT.md`.
+* `docs/IMPLEMENTED_FEATURES.md`;
+* `docs/BACKUP_RESTORE.md`;
+* `docs/AUDIT_REPORT.md`;
+* `docs/SECURITY_AUDIT.md`;
+* `PRODUCTION_READINESS_AUDIT.md`;
+* `AGENTS.md`;
+* чи немає застарілих версій;
+* чи README відповідає реальній структурі;
+* чи roadmap не містить уже реалізовані задачі;
+* чи документація не вводить в оману.
 
-Особливо перевір:
+Запусти доступні перевірки:
 
-* `docs/AUDIT_PROMPT.md` зараз може бути порожнім — чи треба його заповнити;
-* `docs/AUDIT_SECURITY_PROMT.md` має помилку в назві `PROMT`, чи варто перейменувати в `AUDIT_SECURITY_PROMPT.md`;
-* чи `SECURITY_AUDIT.md` не занадто оптимістичний і не вводить в оману фразами типу “10/10, production ready”;
-* чи `AUDIT_REPORT.md` не посилається на неіснуючі або локальні `file:///C:/...` шляхи;
-* чи `ROADMAP.md` не містить уже реалізовані задачі;
-* чи README відповідає реальній структурі і поточним tools;
-* чи інструкції для WampServer/PowerShell/MySQL правильні.
+* `php -l` для всіх PHP-файлів;
+* `node --check public/assets/js/main.js`, якщо Node.js доступний;
+* `php tests/run.php`, якщо можливо;
+* `php tools/self_check.php`, якщо можливо;
+* `php tools/build_release.php`;
+* перевір release ZIP через `unzip -t` або Windows-аналог.
 
-## 9. Автоматичні перевірки
+Якщо якась команда не запускається через відсутність PHP extensions, MySQL, Node.js або іншого середовища — чесно напиши це у звіті.
 
-Запусти все, що можливо в середовищі:
-
-```bash
-php -l
-node --check public/assets/js/main.js
-php tests/run.php
-php tools/self_check.php
-php tools/build_release.php
-unzip -t dist/mygallery_6.0.1_release.zip
-```
-
-Для `php -l` перевір усі `.php` файли.
-
-Для release ZIP перевір, що всередині немає:
-
-```text
-.git
-.env
-config/database.php
-*.log
-sess_*
-*.jpg
-*.jpeg
-*.zip
-*.bak
-*.tmp
-backups/
-dist/
-storage/originals/
-public/uploads/large/*.jpg
-public/uploads/thumbnails/*.jpg
-```
-
-Якщо якась команда не запускається через відсутність `pdo_mysql`, `gd`, `mbstring`, `mysql`, `unzip`, Node.js або БД — прямо напиши це в аудиті. Не вигадуй результат.
-
-## 10. Формат файлу `FULL_PROJECT_AUDIT.md`
-
-Створи або онови `FULL_PROJECT_AUDIT.md` у корені проєкту з такою структурою:
+Файл `FULL_PROJECT_AUDIT.md` оформи так:
 
 # Full Project Audit
 
 ## 1. Executive Summary
 
-Вкажи:
+Коротко:
 
-* версію проєкту;
-* чи це clean release чи робоча папка;
+* яка версія проєкту;
 * чи можна запускати локально;
 * чи готовий до production;
 * головні ризики;
-* загальну оцінку стану;
-* чесний висновок без перебільшень.
+* загальна оцінка стану.
 
 ## 2. Audit Scope
 
 Вкажи:
 
-* кількість PHP-файлів;
-* кількість SQL-файлів;
-* кількість JS-файлів;
-* кількість Markdown-файлів;
+* кількість PHP/SQL/JS/Markdown файлів;
 * які папки перевірені;
 * які команди запускались;
-* які команди не вдалося запустити і чому.
+* що не вдалося перевірити.
 
 ## 3. Severity Summary
-
-Таблиця:
 
 | Severity | Count |
 | -------- | ----: |
@@ -494,7 +208,7 @@ public/uploads/thumbnails/*.jpg
 
 * ID;
 * severity;
-* status: `open`;
+* status: open;
 * файл і рядок;
 * опис;
 * impact;
@@ -517,21 +231,11 @@ public/uploads/thumbnails/*.jpg
 
 ## 8. Informational / Improvements
 
-Список корисних покращень, які не є багами.
+Корисні покращення, які не є багами.
 
-## 9. Architecture Review
+## 9. Security Review
 
-Оціни:
-
-* структуру;
-* розділення відповідальностей;
-* складність;
-* підтримуваність;
-* чи проект не став занадто складним.
-
-## 10. Security Review
-
-Оціни:
+Окремо оцінити:
 
 * SQLi;
 * XSS;
@@ -541,66 +245,49 @@ public/uploads/thumbnails/*.jpg
 * uploads;
 * file access;
 * share links;
-* backups;
+* backup/restore;
 * release ZIP;
 * production config.
 
-## 11. Code Quality Review
+## 10. Architecture Review
 
-Оціни:
+Окремо оцінити:
 
+* структуру;
+* підтримуваність;
+* складність;
 * дублювання;
-* функції;
-* SQL;
-* HTML/PHP змішування;
-* error handling;
-* maintainability.
+* чи проєкт не став занадто складним.
 
-## 12. Database Review
+## 11. Database Review
 
-Оціни:
+Окремо оцінити:
 
 * schema;
 * migrations;
-* idempotency;
 * indexes;
 * constraints;
+* idempotency;
 * tags;
-* share_links;
+* share links;
 * original_sha256;
 * session_version.
 
-## 13. Tools Review
+## 12. Tools Review
 
-Оціни всі CLI tools:
+Оцінити всі CLI tools і вказати, які можуть бути небезпечними або нестабільними.
 
-* setup;
-* self_check;
-* build_release;
-* backup;
-* verify_backup;
-* restore;
-* cleanup;
-* regenerate;
-* recover;
-* backfill.
+## 13. Documentation Review
 
-## 14. Tests Review
-
-Оціни наявні тести й дай список тестів, які треба додати.
-
-## 15. Documentation Review
-
-Оціни всі `.md` файли і конкретно напиши:
+Оцінити всі `.md` файли:
 
 * що актуальне;
 * що застаріле;
-* що порожнє;
-* що перейменувати;
-* що видалити;
-* що додати.
+* що треба переписати;
+* що треба додати;
+* що краще видалити.
 
-## 16. Recommended Fix Order
+## 14. Recommended Fix Order
 
 Дай порядок виправлень:
 
@@ -617,71 +304,56 @@ public/uploads/thumbnails/*.jpg
 * affected files;
 * verification steps.
 
-## 17. Regression Test Checklist
+## 15. Regression Test Checklist
 
 Дай чекліст ручного тестування:
 
 * login/logout;
 * invalid login;
-* rate limiter;
 * upload JPEG;
-* upload duplicate JPEG;
 * upload invalid file;
-* upload large JPEG;
-* EXIF orientation;
+* duplicate upload;
 * albums;
 * tags;
-* search;
-* filters;
-* pagination;
+* search/filter;
 * photo page;
 * prev/next;
-* edit photo;
-* delete photo;
-* recover trash;
-* cleanup orphans;
-* regenerate images;
+* edit/delete;
+* bulk edit;
+* share links;
+* expired/revoked share links;
 * download original;
-* admin stats;
-* admin health;
-* create photo share link;
-* create album share link;
-* revoke share link;
-* expired share link;
-* public share page;
-* backup;
-* verify backup;
-* restore backup;
+* stats;
+* health;
+* backup/verify/restore;
 * build release;
-* self check;
-* 404 page;
-* 500 page;
-* unauthorized admin access;
+* 404/500;
 * CSRF failure;
+* unauthorized admin access;
 * direct private file access.
 
-## 18. Final Verdict
+## 16. Final Verdict
 
-Напиши:
+Чітко напиши:
 
-* що вже добре;
+* що добре;
 * що обов’язково виправити;
 * що бажано виправити;
 * що можна відкласти;
-* чи готовий проєкт для локального використання;
+* чи готовий проєкт локально;
 * чи готовий до production;
-* чи можна цю версію вважати stable.
+* чи можна вважати версію stable.
 
-Вимоги до якості аудиту:
+Вимоги:
 
-* Пиши українською мовою.
+* Пиши українською.
 * Не вигадуй проблеми.
-* Не дублюй одну проблему багато разів.
-* Прив’язуй кожну реальну проблему до конкретного файла й бажано рядка.
-* Якщо щось залежить від конфігурації Apache/Nginx/WampServer — прямо так і напиши.
-* Якщо щось не перевірилось через середовище — прямо так і напиши.
 * Не називай проєкт “ідеальним” або “100% безпечним”.
-* Аудит має бути практичним, щоб по ньому можна було виправляти проєкт крок за кроком.
+* Для кожної проблеми вказуй конкретний файл і бажано рядок.
+* Якщо щось не вдалося перевірити — прямо напиши.
+* Якщо проблема залежить від Apache/Nginx/WampServer — прямо так і напиши.
+* Не дублюй одну проблему багато разів.
+* Звіт має бути практичним, щоб по ньому можна було виправляти проєкт крок за кроком.
 
 Після завершення:
 

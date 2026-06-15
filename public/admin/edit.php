@@ -78,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$stmt = db()->prepare('SELECT id, token FROM share_links WHERE photo_id = ?');
+$stmt = db()->prepare('SELECT id, token, expires_at FROM share_links WHERE photo_id = ? ORDER BY created_at DESC, id DESC');
 $stmt->execute([$id]);
 $shareLinks = $stmt->fetchAll();
 
@@ -128,21 +128,30 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
     </form>
 </section>
 
-<section class="form-panel" style="margin-top: 2rem;">
+<section class="form-panel admin-share-panel">
     <h2>Приватні посилання</h2>
     <?php if ($shareLinks): ?>
-        <ul style="list-style: none; padding: 0;">
+        <ul class="admin-share-list">
         <?php foreach ($shareLinks as $link): ?>
-            <li style="margin-bottom: 1rem; padding: 1rem; background: var(--bg-hover); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
-                <a href="<?= h(url('share.php?token=' . $link['token'])) ?>" target="_blank" style="word-break: break-all;">
-                    <?= h(url('share.php?token=' . $link['token'])) ?>
-                </a>
-                <form method="post" action="<?= h(url('admin/share.php')) ?>" style="display:inline;">
+            <?php
+            $expiresAt = (string) ($link['expires_at'] ?? '');
+            $isExpired = $expiresAt !== '' && strtotime($expiresAt) < time();
+            ?>
+            <li>
+                <div class="share-link-details">
+                    <a href="<?= h(url('share.php?token=' . $link['token'])) ?>" target="_blank">
+                        <?= h(url('share.php?token=' . $link['token'])) ?>
+                    </a>
+                    <span class="share-link-status <?= $isExpired ? 'is-expired' : '' ?>">
+                        <?= $expiresAt === '' ? 'Без строку дії' : ($isExpired ? 'Застаріло: ' : 'Діє до: ') . h($expiresAt) ?>
+                    </span>
+                </div>
+                <form method="post" action="<?= h(url('admin/share.php')) ?>" data-confirm="Видалити посилання?">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="revoke">
                     <input type="hidden" name="id" value="<?= h((string)$link['id']) ?>">
                     <input type="hidden" name="return_to" value="admin/edit.php?id=<?= h((string)$id) ?>">
-                    <button class="button button-danger" type="submit" onclick="return confirm('Видалити посилання?');">Відкликати</button>
+                    <button class="button danger" type="submit">Відкликати</button>
                 </form>
             </li>
         <?php endforeach; ?>
@@ -151,11 +160,21 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <p>Немає активних приватних посилань для цього фото.</p>
     <?php endif; ?>
     
-    <form method="post" action="<?= h(url('admin/share.php')) ?>" style="margin-top: 1rem;">
+    <form method="post" action="<?= h(url('admin/share.php')) ?>" class="admin-share-create-form">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="create_photo_share">
         <input type="hidden" name="photo_id" value="<?= h((string)$id) ?>">
-        <button class="button button-secondary" type="submit">Створити нове посилання</button>
+        <label class="share-expiry-field">
+            Строк дії
+            <select name="expires_in">
+                <option value="1">1 день</option>
+                <option value="7">7 днів</option>
+                <option value="30" selected>30 днів</option>
+                <option value="90">90 днів</option>
+                <option value="0">Без строку дії</option>
+            </select>
+        </label>
+        <button class="button secondary" type="submit">Створити нове посилання</button>
     </form>
 </section>
 

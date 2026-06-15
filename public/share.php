@@ -36,16 +36,16 @@ function render_shared_photo(array $photo, string $token, ?int $albumId = null) 
 
     require __DIR__ . '/../app/includes/header.php';
     ?>
-    <article class="photo-view" style="max-width: 1200px; margin: 2rem auto; padding: 0 1rem;">
-        <header class="photo-view-header" style="text-align: center; margin-bottom: 2rem;">
-            <h1 style="margin: 0;"><?= h($photo['title']) ?></h1>
-            <p style="color: var(--text-muted);"><?= h($photo['description'] ?: 'Без опису') ?></p>
+    <article class="photo-view shared-photo-view">
+        <header class="photo-view-header shared-photo-header">
+            <h1><?= h($photo['title']) ?></h1>
+            <p class="shared-photo-description"><?= h($photo['description'] ?: 'Без опису') ?></p>
             <?php if ($albumId): ?>
                 <p><a class="button secondary" href="<?= h(url('share.php?token=' . $token)) ?>">Повернутися до альбому</a></p>
             <?php endif; ?>
         </header>
 
-        <figure class="large-photo" style="display: flex; justify-content: center;">
+        <figure class="large-photo shared-photo-figure">
             <a href="<?= h($photoImageUrl) ?>" target="_blank">
                 <img
                     src="<?= h($photoImageUrl) ?>"
@@ -54,7 +54,7 @@ function render_shared_photo(array $photo, string $token, ?int $albumId = null) 
                         sizes="100vw"
                     <?php endif; ?>
                     alt="<?= h($photo['title']) ?>"
-                    style="max-width: 100%; height: auto; border-radius: var(--radius-md); box-shadow: 0 4px 12px rgba(0,0,0,0.1);"
+                    class="shared-photo-image"
                 >
             </a>
         </figure>
@@ -108,4 +108,3 @@ if (!empty($share['album_id'])) {
 
 http_response_code(404);
 echo "Некоректне посилання.";
-

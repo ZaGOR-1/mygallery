@@ -27,11 +27,11 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 - серверне обмеження невдалих спроб входу;
 - CSRF-захист для POST-форм;
 - завантаження тільки `image/jpeg`;
-- максимальний розмір одного JPEG — 30 МБ;
+- максимальний розмір одного JPEG — 50 МБ;
 - обмеження розмірів зображення до 8000x8000 або 50 МП;
 - випадкові імена файлів на сервері;
 - приватне byte-for-byte зберігання оригінальних JPEG у `storage/originals`;
-- веб-версія фото до 2400 px завширшки;
+- веб-версія фото до 4000 px завширшки;
 - прев’ю до 600 px завширшки;
 - responsive images через `srcset` і `sizes`;
 - автоматичне виправлення EXIF Orientation;
@@ -73,14 +73,14 @@ VERSION                               поточна версія проєкту
 tools/lib/SimpleZipWriter.php         pure-PHP ZIP writer для release/backup
 README.md                             основна інструкція запуску
 AGENTS.md                             правила для AI/Codex-агента
-IMPLEMENTED_FEATURES.md               що вже реалізовано
+docs/IMPLEMENTED_FEATURES.md          що вже реалізовано
 CHANGELOG.md                          історія змін версій
 docs/BUGS.md                          відомі обмеження і потенційні баги
 ROADMAP.md                            майбутні задачі, не список уже реалізованого
 docs/AUDIT_REPORT.md                  короткий підсумок останнього аудиту
 docs/SECURITY_AUDIT.md                детальний технічний аудит
 docs/AUDIT_PROMPT.md                  промпт для повторного аудиту AI-агентом
-BACKUP_RESTORE.md                     порядок backup і restore
+docs/BACKUP_RESTORE.md                порядок backup і restore
 ```
 
 Apache або Nginx має відкривати тільки папку `public/`. Папки `app/`, `config/`, `database/`, `storage/`, `tools/` і markdown-документи не повинні бути доступні напряму через браузер.
@@ -162,18 +162,18 @@ C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_pho
 'APP_URL' => 'http://mygallery',
 'APP_ENV' => 'local',
 'APP_DEBUG' => false,
-'UPLOAD_MAX_SIZE' => 30 * 1024 * 1024,
+'UPLOAD_MAX_SIZE' => 50 * 1024 * 1024,
 'MAX_IMAGE_WIDTH' => 8000,
 'MAX_IMAGE_HEIGHT' => 8000,
 'MAX_IMAGE_PIXELS' => 50 * 1000 * 1000,
-'LARGE_MAX_WIDTH' => 2400,
+'LARGE_MAX_WIDTH' => 4000,
 ```
 
 10. Для великих JPEG перевірте PHP-ліміти у `php.ini`:
 
 ```ini
-upload_max_filesize = 32M
-post_max_size = 40M
+upload_max_filesize = 64M
+post_max_size = 72M
 memory_limit = 512M
 ```
 
@@ -439,7 +439,7 @@ php tools/regenerate_images.php --all --dry-run
 php tools/build_release.php
 ```
 
-На виході буде `dist/mygallery_<VERSION>_release.zip`, наприклад `dist/mygallery_6.0.1_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/backup-файли або реальні фото з upload/storage.
+На виході буде `dist/mygallery_<VERSION>_release.zip`, наприклад `dist/mygallery_6.1.0_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/backup-файли або реальні фото з upload/storage.
 
 Приватний backup:
 
@@ -448,7 +448,7 @@ php tools/backup.php
 php tools/backup.php --include-config
 ```
 
-Без `--include-config` файл `config/database.php` не потрапляє в backup ZIP. `tools/backup.php` відмовляється створювати backup усередині `public/`, щоб приватний ZIP випадково не став доступним через браузер. Див. також `BACKUP_RESTORE.md`.
+Без `--include-config` файл `config/database.php` не потрапляє в backup ZIP. `tools/backup.php` відмовляється створювати backup усередині `public/`, щоб приватний ZIP випадково не став доступним через браузер. Див. також `docs/BACKUP_RESTORE.md`.
 
 Web health-check доступний після входу в адмінку:
 
@@ -478,7 +478,7 @@ php tools/backup.php
 mysqldump -u gallery_user -p my_photo_gallery > backup.sql
 ```
 
-Backup не можна зберігати всередині `public/` і не можна комітити в Git. `tools/backup.php` блокує `--output` у `public/`, але приватні backup-файли все одно треба зберігати поза `DocumentRoot`. Детальний порядок restore описаний у `BACKUP_RESTORE.md`.
+Backup не можна зберігати всередині `public/` і не можна комітити в Git. `tools/backup.php` блокує `--output` у `public/`, але приватні backup-файли все одно треба зберігати поза `DocumentRoot`. Детальний порядок restore описаний у `docs/BACKUP_RESTORE.md`.
 
 ## Передача ZIP-архіву
 
@@ -514,13 +514,13 @@ DB_PASSWORD=strong_password
 
 ## Документація
 
-- `IMPLEMENTED_FEATURES.md` — що вже реалізовано і не треба повторно планувати в roadmap.
+- `docs/IMPLEMENTED_FEATURES.md` — що вже реалізовано і не треба повторно планувати в roadmap.
 - `ROADMAP.md` — майбутні задачі, розбиті за пріоритетами.
 - `docs/BUGS.md` — відомі обмеження і потенційні баги.
 - `docs/AUDIT_REPORT.md` — короткий підсумок останнього аудиту.
 - `docs/SECURITY_AUDIT.md` — детальний технічний аудит.
 - `docs/AUDIT_PROMPT.md` — готовий промпт для повторного аудиту AI-агентом.
-- `BACKUP_RESTORE.md` — порядок backup і restore.
+- `docs/BACKUP_RESTORE.md` — порядок backup і restore.
 - `AGENTS.md` — правила для AI/Codex-агента, який буде змінювати проєкт.
 
 ## Після встановлення

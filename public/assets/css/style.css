@@ -705,6 +705,17 @@ button.button {
     font-size: 14px;
 }
 
+.form-note {
+    margin-top: 0;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.bulk-fieldset,
+.form-actions {
+    margin-top: 28px;
+}
+
 label {
     display: grid;
     gap: 8px;
@@ -1034,7 +1045,28 @@ textarea:focus {
 }
 
 .admin-share-create-form {
+    display: grid;
+    gap: 14px;
     margin-top: 14px;
+}
+
+.share-link-details {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.share-link-status {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.share-link-status.is-expired {
+    color: var(--danger);
+}
+
+.share-expiry-field {
+    max-width: 260px;
 }
 
 .admin-empty-state {
@@ -1265,6 +1297,16 @@ textarea:focus {
     color: var(--text);
 }
 
+.tag-pill-static {
+    cursor: default;
+    opacity: 0.8;
+}
+
+.tag-pill-static:hover {
+    border-color: var(--line);
+    color: var(--muted);
+}
+
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -1356,6 +1398,37 @@ textarea:focus {
     border: 1px solid var(--line);
     color: var(--muted);
     white-space: pre-wrap;
+}
+
+.shared-photo-view {
+    max-width: 1200px;
+    margin: 32px auto;
+    padding: 0 16px;
+}
+
+.shared-photo-header {
+    display: block;
+    margin-bottom: 32px;
+    text-align: center;
+}
+
+.shared-photo-header h1 {
+    margin: 0 0 12px;
+}
+
+.shared-photo-description {
+    color: var(--muted);
+}
+
+.shared-photo-figure {
+    display: flex;
+    justify-content: center;
+}
+
+.shared-photo-image {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--line);
 }
 
 @media (max-width: 760px) {
