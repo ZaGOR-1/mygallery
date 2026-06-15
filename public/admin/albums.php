@@ -68,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 try {
-    $albums = get_album_options(true);
+    $albums = get_public_albums_with_covers();
 
     if ($editingAlbumId !== null) {
         foreach ($albums as $album) {
@@ -91,14 +91,16 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <h1>Альбоми</h1>
         <p>Створюйте прості альбоми й прив’язуйте до них фотографії.</p>
     </div>
-    <a class="button secondary" href="<?= h(url('admin/index.php')) ?>">До адмінпанелі</a>
+    <div class="toolbar-actions">
+        <a class="button secondary" href="<?= h(url('admin/index.php')) ?>">До адмінпанелі</a>
+    </div>
 </section>
 
 <?php foreach ($errors as $error): ?>
     <div class="alert alert-error"><?= h($error) ?></div>
 <?php endforeach; ?>
 
-<section class="form-panel">
+<section class="form-panel admin-form-panel">
     <h2><?= $editingAlbum ? 'Редагувати альбом' : 'Новий альбом' ?></h2>
     <form method="post" action="<?= h(url('admin/albums.php')) ?>" class="stacked-form">
         <?= csrf_field() ?>
@@ -144,21 +146,21 @@ $stmt = db()->prepare('SELECT id, token FROM share_links WHERE album_id = ?');
 $stmt->execute([$editingAlbum['id']]);
 $albumShares = $stmt->fetchAll();
 ?>
-<section class="form-panel" style="margin-top: 2rem;">
+<section class="form-panel admin-share-panel">
     <h2>Приватні посилання на альбом</h2>
     <?php if ($albumShares): ?>
-        <ul style="list-style: none; padding: 0;">
+        <ul class="admin-share-list">
         <?php foreach ($albumShares as $link): ?>
-            <li style="margin-bottom: 1rem; padding: 1rem; background: var(--bg-hover); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
-                <a href="<?= h(url('share.php?token=' . $link['token'])) ?>" target="_blank" style="word-break: break-all;">
+            <li>
+                <a href="<?= h(url('share.php?token=' . $link['token'])) ?>" target="_blank">
                     <?= h(url('share.php?token=' . $link['token'])) ?>
                 </a>
-                <form method="post" action="<?= h(url('admin/share.php')) ?>" style="display:inline;">
+                <form method="post" action="<?= h(url('admin/share.php')) ?>" data-confirm="Видалити посилання?">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="revoke">
                     <input type="hidden" name="id" value="<?= h((string)$link['id']) ?>">
                     <input type="hidden" name="return_to" value="admin/albums.php?edit=<?= h((string)$editingAlbum['id']) ?>">
-                    <button class="button button-danger" type="submit" onclick="return confirm('Видалити посилання?');">Відкликати</button>
+                    <button class="button danger" type="submit">Відкликати</button>
                 </form>
             </li>
         <?php endforeach; ?>
@@ -167,25 +169,46 @@ $albumShares = $stmt->fetchAll();
         <p>Немає активних приватних посилань для цього альбому.</p>
     <?php endif; ?>
     
-    <form method="post" action="<?= h(url('admin/share.php')) ?>" style="margin-top: 1rem;">
+    <form method="post" action="<?= h(url('admin/share.php')) ?>" class="admin-share-create-form">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="create_album_share">
         <input type="hidden" name="album_id" value="<?= h((string)$editingAlbum['id']) ?>">
-        <button class="button button-secondary" type="submit">Створити нове посилання</button>
+        <button class="button secondary" type="submit">Створити нове посилання</button>
     </form>
 </section>
 <?php endif; ?>
 
 
 <?php if (empty($albums)): ?>
-    <p class="empty-state">Альбомів поки немає.</p>
+    <section class="admin-empty-state">
+        <h2>Альбомів поки немає</h2>
+        <p>Створіть перший альбом вище, а потім прив'яжіть до нього фотографії під час upload або редагування.</p>
+    </section>
 <?php else: ?>
-    <div class="admin-list">
+    <div class="admin-list admin-collection-list">
         <?php foreach ($albums as $album): ?>
             <article class="admin-item album-item">
-                <div>
+                <div class="admin-item-media album-cover-preview">
+                    <?php if (!empty($album['thumbnail_filename'])): ?>
+                        <img
+                            src="<?= h(photo_display_url($album)) ?>"
+                            srcset="<?= h(photo_cover_srcset($album)) ?>"
+                            sizes="120px"
+                            alt="<?= h($album['cover_title'] ?: $album['name']) ?>"
+                            width="600"
+                            height="400"
+                            loading="lazy"
+                        >
+                    <?php else: ?>
+                        <div class="admin-cover-empty">Без обкладинки</div>
+                    <?php endif; ?>
+                </div>
+                <div class="admin-item-body">
                     <h2><?= h($album['name']) ?></h2>
-                    <p><?= h((string) (int) $album['photo_count']) ?> фото</p>
+                    <div class="admin-meta">
+                        <span><?= h((string) (int) $album['photo_count']) ?> фото</span>
+                        <span><?= !empty($album['cover_photo_id']) ? 'Обкладинку задано' : 'Автообкладинка' ?></span>
+                    </div>
                 </div>
                 <div class="admin-actions">
                     <a class="button secondary" href="<?= h(url('gallery.php?album_id=' . (int) $album['id'])) ?>">Перегляд</a>

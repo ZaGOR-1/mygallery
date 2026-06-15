@@ -129,7 +129,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <h1>Теги</h1>
         <p>Керування тегами: перейменування, видалення та об'єднання.</p>
     </div>
-    <div style="display: flex; gap: 1rem;">
+    <div class="toolbar-actions">
         <form method="post" action="<?= h(url('admin/tags.php')) ?>" data-confirm="Видалити всі теги, які не прив'язані до жодної фотографії?">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="prune">
@@ -147,8 +147,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
 <section class="form-panel">
     <h2>Редагувати тег: <?= h($editingTag['name']) ?></h2>
     
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
-        <!-- Ренейм форми -->
+    <div class="admin-edit-grid">
         <form method="post" action="<?= h(url('admin/tags.php')) ?>" class="stacked-form">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="update">
@@ -163,7 +162,6 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             </div>
         </form>
         
-        <!-- Об'єднання форми -->
         <form method="post" action="<?= h(url('admin/tags.php')) ?>" class="stacked-form" data-confirm="Увага! Тег буде видалено, а всі його фотографії отримають новий вибраний тег. Продовжити?">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="merge">
@@ -190,17 +188,24 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
 <?php endif; ?>
 
 <?php if (empty($tags)): ?>
-    <p class="empty-state">Тегів поки немає.</p>
+    <section class="admin-empty-state">
+        <h2>Тегів поки немає</h2>
+        <p>Теги створюються під час завантаження або редагування фотографій. Після цього тут можна буде їх перейменувати, об'єднати або видалити.</p>
+        <a class="button secondary" href="<?= h(url('admin/upload.php')) ?>">Завантажити фото</a>
+    </section>
 <?php else: ?>
-    <div class="admin-list">
+    <div class="admin-list admin-collection-list">
         <?php foreach ($tags as $tag): ?>
             <article class="admin-item tag-item">
-                <div>
+                <div class="admin-tag-mark" aria-hidden="true">#</div>
+                <div class="admin-item-body">
                     <h2>#<?= h($tag['name']) ?></h2>
-                    <p><?= h((string) (int) $tag['photo_count']) ?> фотографій</p>
+                    <div class="admin-meta">
+                        <span><?= h((string) (int) $tag['photo_count']) ?> фотографій</span>
+                    </div>
                 </div>
                 <div class="admin-actions">
-                    <a class="button secondary" href="<?= h(url('gallery.php?tag=' . urlencode($tag['slug']))) ?>">Перегляд</a>
+                    <a class="button secondary" href="<?= h(url('gallery.php?tag_id=' . (int) $tag['id'])) ?>">Перегляд</a>
                     <a class="button secondary" href="<?= h(url('admin/tags.php?edit=' . (int) $tag['id'])) ?>">Редагувати</a>
                     <form method="post" action="<?= h(url('admin/tags.php')) ?>" data-confirm="Видалити цей тег з усіх фотографій?">
                         <?= csrf_field() ?>

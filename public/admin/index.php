@@ -150,26 +150,30 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             </label>
             <button class="button" type="submit" name="bulk_action" value="edit">Масове редагування</button>
         </div>
-        <div class="admin-list">
+        <div class="admin-list admin-photo-list">
         <?php foreach ($photos as $photo): ?>
-            <article class="admin-item">
-                <label class="photo-checkbox-label">
-                    <input type="checkbox" name="photo_ids[]" value="<?= h((string) $photo['id']) ?>" class="photo-checkbox">
-                </label>
-                <img
-                    src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
-                    srcset="<?= h(photo_responsive_srcset($photo)) ?>"
-                    sizes="<?= h(photo_card_sizes()) ?>"
-                    alt="<?= h($photo['title']) ?>"
-                    width="600"
-                    height="400"
-                    loading="lazy"
-                >
-                <div>
+            <article class="admin-item admin-photo-item">
+                <div class="admin-item-media">
+                    <label class="photo-checkbox-label" aria-label="Вибрати фото <?= h($photo['title']) ?>">
+                        <input type="checkbox" name="photo_ids[]" value="<?= h((string) $photo['id']) ?>" class="photo-checkbox">
+                    </label>
+                    <img
+                        src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
+                        srcset="<?= h(photo_responsive_srcset($photo)) ?>"
+                        sizes="160px"
+                        alt="<?= h($photo['title']) ?>"
+                        width="600"
+                        height="400"
+                        loading="lazy"
+                    >
+                </div>
+                <div class="admin-item-body">
                     <h2><?= h($photo['title']) ?></h2>
-                    <p><?= h($photo['original_name']) ?></p>
-                    <p><?= h($photo['album_name'] ?: 'Без альбому') ?></p>
-                    <p><?= h($photo['camera_model'] ?: 'Немає даних') ?></p>
+                    <div class="admin-meta">
+                        <span><?= h($photo['original_name']) ?></span>
+                        <span><?= h($photo['album_name'] ?: 'Без альбому') ?></span>
+                        <span><?= h($photo['camera_model'] ?: 'Немає даних') ?></span>
+                    </div>
                     <?php $photoTags = $tagsByPhoto[(int) $photo['id']] ?? []; ?>
                     <?php if (!empty($photoTags)): ?>
                         <div class="tag-list" aria-label="Теги фотографії">
