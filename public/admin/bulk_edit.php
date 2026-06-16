@@ -62,12 +62,11 @@ if ($action === 'delete') {
         $pdo->beginTransaction();
 
         // 1. Update album
+        $placeholders = implode(',', array_fill(0, count($photoIds), '?'));
         if ($newAlbumIdRaw === 'null') {
             // Remove from album
-            // Remove from album
-            $stmtCover = $pdo->prepare('UPDATE albums SET cover_photo_id = NULL WHERE cover_photo_id IN (' . implode(',', $photoIds) . ')');
-            $stmtCover->execute();
-            $placeholders = implode(',', array_fill(0, count($photoIds), '?'));
+            $stmtCover = $pdo->prepare("UPDATE albums SET cover_photo_id = NULL WHERE cover_photo_id IN ($placeholders)");
+            $stmtCover->execute($photoIds);
             $stmt = $pdo->prepare("UPDATE photos SET album_id = NULL WHERE id IN ($placeholders)");
             $stmt->execute($photoIds);
         } elseif ($newAlbumIdRaw !== '') {
@@ -79,9 +78,8 @@ if ($action === 'delete') {
             if (!$albumCheck->fetch()) {
                 throw new InvalidArgumentException('Вибраний альбом не існує.');
             }
-            $stmtCover = $pdo->prepare('UPDATE albums SET cover_photo_id = NULL WHERE id != ? AND cover_photo_id IN (' . implode(',', $photoIds) . ')');
-            $stmtCover->execute([$albumId]);
-            $placeholders = implode(',', array_fill(0, count($photoIds), '?'));
+            $stmtCover = $pdo->prepare("UPDATE albums SET cover_photo_id = NULL WHERE id != ? AND cover_photo_id IN ($placeholders)");
+            $stmtCover->execute(array_merge([$albumId], $photoIds));
             $params = array_merge([$albumId], $photoIds);
             $stmt = $pdo->prepare("UPDATE photos SET album_id = ? WHERE id IN ($placeholders)");
             $stmt->execute($params);

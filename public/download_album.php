@@ -16,10 +16,12 @@ function album_download_client_ip(): string
 
 function album_download_lock_key(int $albumId, string $token): string
 {
+    // Ключ лише за IP + scope: User-Agent підробляється тривіально, тож включення його
+    // дозволяло б анонімному клієнту щоразу отримувати свіжий cooldown-bucket і обходити
+    // захист від вичерпання ресурсів (ZIP до 200 фото / 500 МБ).
     $scope = $token !== '' ? 'share:' . hash('sha256', $token) : 'album:' . $albumId;
-    $userAgent = substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 120);
 
-    return hash('sha256', album_download_client_ip() . '|' . $userAgent . '|' . $scope);
+    return hash('sha256', album_download_client_ip() . '|' . $scope);
 }
 
 function cleanup_album_download_locks(string $dir, int $olderThanSeconds = 86400): void
@@ -178,7 +180,13 @@ $stmtMax->execute([$albumId]);
 $maxDates = $stmtMax->fetch();
 $lastUpdate = max($maxDates['m_up'] ?: '0', $maxDates['m_cr'] ?: '0');
 
-$cacheKey = 'album_' . $albumId . '_' . md5($lastUpdate . $albumName . count($photos)) . '.zip';
+// Only admins receive byte-for-byte private originals from storage/originals.
+// Public (?album_id=) and share-token downloads get the optimized uploads/large copy only.
+// The flag is part of the cache key so an admin ZIP (originals) is never served to a non-admin.
+$canDownloadOriginals = is_admin_logged_in();
+$variant = $canDownloadOriginals ? 'orig' : 'opt';
+
+$cacheKey = 'album_' . $albumId . '_' . $variant . '_' . md5($lastUpdate . $albumName . count($photos)) . '.zip';
 $cacheFile = $zipCacheDir . DIRECTORY_SEPARATOR . $cacheKey;
 
 // Helper to construct Ukrainian/Cyrillic safe zip file name
@@ -206,7 +214,10 @@ $totalSize = 0;
 $validFiles = [];
 
 foreach ($photos as $photo) {
-    $filePath = safe_existing_storage_file_path('originals', (string) $photo['filename']);
+    $filePath = null;
+    if ($canDownloadOriginals) {
+        $filePath = safe_existing_storage_file_path('originals', (string) $photo['filename']);
+    }
     if ($filePath === null || !is_file($filePath)) {
         $filePath = safe_existing_upload_file_path('large', (string) $photo['filename']);
     }

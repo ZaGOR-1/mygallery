@@ -10,15 +10,47 @@ if (!is_dir($rateLimitDir)) {
     @mkdir($rateLimitDir, 0755, true);
 }
 $rateLimitFile = $rateLimitDir . DIRECTORY_SEPARATOR . 'limit_' . md5($ip) . '.json';
-$limitData = @file_get_contents($rateLimitFile);
-$limitArr = $limitData ? json_decode($limitData, true) : ['count' => 0, 'time' => time()];
-if (time() - $limitArr['time'] > 60) {
-    $limitArr = ['count' => 1, 'time' => time()];
-} else {
-    $limitArr['count']++;
+
+// Лічильник rate limit оновлюється під `flock` (read-modify-write), інакше паралельні
+// запити губили б інкременти й лічильник занижувався б. Форма масиву валідується після
+// json_decode: битий/неочікуваний JSON не має давати null-deref під strict_types.
+$rateLimited = false;
+$handle = fopen($rateLimitFile, 'c+');
+if ($handle !== false) {
+    try {
+        if (flock($handle, LOCK_EX)) {
+            $now = time();
+            $raw = stream_get_contents($handle);
+            $decoded = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+
+            if (!is_array($decoded) || !isset($decoded['count'], $decoded['time'])) {
+                $limitArr = ['count' => 0, 'time' => $now];
+            } else {
+                $limitArr = ['count' => (int) $decoded['count'], 'time' => (int) $decoded['time']];
+            }
+
+            if ($now - $limitArr['time'] > 60) {
+                $limitArr = ['count' => 1, 'time' => $now];
+            } else {
+                $limitArr['count']++;
+            }
+
+            ftruncate($handle, 0);
+            rewind($handle);
+            fwrite($handle, (string) json_encode($limitArr));
+            fflush($handle);
+            flock($handle, LOCK_UN);
+
+            $rateLimited = $limitArr['count'] > 120;
+        }
+    } finally {
+        if (is_resource($handle)) {
+            fclose($handle);
+        }
+    }
 }
-@file_put_contents($rateLimitFile, json_encode($limitArr));
-if ($limitArr['count'] > 120) {
+
+if ($rateLimited) {
     http_response_code(429);
     $errorStatusCode = 429;
     $errorTitle = 'Занадто багато запитів';

@@ -52,12 +52,13 @@ try {
     $tagOptions = $options['tags'];
     $cameraOptions = $options['cameras'];
 
-    $totalPhotos = count_photos(db(), $filters, false);
+    // A shared view is allowed to include the private album that was explicitly shared.
+    $totalPhotos = count_photos(db(), $filters, false, $isSharedView);
     $totalPages = max(1, (int) ceil($totalPhotos / $perPage));
     $page = min($page, $totalPages);
     $offset = ($page - 1) * $perPage;
 
-    $photos = fetch_photos(db(), $filters, $perPage, $offset, false);
+    $photos = fetch_photos(db(), $filters, $perPage, $offset, false, $isSharedView);
     $tagsByPhoto = get_photo_tags_map(array_column($photos, 'id'));
 } catch (Throwable $exception) {
     app_http_error('Не вдалося завантажити галерею. Перевірте підключення до бази даних.', 500, $exception);

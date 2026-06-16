@@ -98,6 +98,8 @@ $runtimeRows[] = health_row('memory_limit', 'ok', (string) ini_get('memory_limit
 
 $extensionRows = [];
 foreach (required_php_extensions() as $extension) {
+    $loaded = extension_loaded($extension);
+    $extensionRows[] = health_row('Розширення ' . $extension, $loaded ? 'ok' : 'error', $loaded ? 'enabled' : 'missing (required)');
 }
 $extensionRows[] = health_row('GD WebP support', function_exists('imagewebp') ? 'ok' : 'warn', function_exists('imagewebp') ? 'enabled' : 'missing (no next-gen WebP)');
 $extensionRows[] = health_row('GD AVIF support', function_exists('imageavif') ? 'ok' : 'warn', function_exists('imageavif') ? 'enabled' : 'missing (no next-gen AVIF)');

@@ -11,7 +11,7 @@ $errorTitle = (string) ($errorTitle ?? 'Сторінку не знайдено')
 $errorMessage = (string) ($errorMessage ?? 'Перевірте адресу або поверніться до галереї.');
 
 if (!headers_sent()) {
-    http_response_code(404);
+    http_response_code($errorStatusCode >= 400 ? $errorStatusCode : 404);
     send_security_headers();
 }
 ?>

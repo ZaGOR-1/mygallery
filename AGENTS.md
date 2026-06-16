@@ -275,7 +275,7 @@ PDO::ATTR_EMULATE_PREPARES => false,
 - логувати infrastructure-помилки в приватний лог;
 - SQL-файли мають бути portable і не містити `USE my_photo_gallery;`;
 - README-команди мають явно передавати назву БД у CLI;
-- міграції мають бути idempotent, якщо це можливо;
+- кожна міграція ОБОВ'ЯЗКОВО має бути idempotent (DDL у MySQL автокомітиться, тож транзакція не зробить її атомарною — ідемпотентність єдиний надійний захист від часткового збою);
 - повторний запуск міграцій не має ламатися на `Duplicate column`, `Duplicate key`, `Table already exists`.
 
 Поточні таблиці:
@@ -425,8 +425,11 @@ Delete має використовувати `storage/trash` і JSON manifest, �
 
 - `tools/backup.php` не має створювати backup у `public`.
 - Backup містить приватні оригінали, тому його не можна публікувати.
+- Дамп БД має включати `schema_migrations`, інакше після restore міграції перезапустяться по вже мігрованих даних.
 - `tools/verify_backup.php` має перевіряти manifest і файли.
 - `tools/restore.php` має спочатку перевіряти backup, manifest, SQL і дозволені шляхи, а вже потім змінювати БД/файли.
+- `tools/restore.php` застосовує SQL-дамп у транзакції (rollback при збої); тому `tools/backup.php` не має генерувати `LOCK TABLES`/`UNLOCK TABLES` (вони викликають неявний COMMIT у MySQL).
+- Медіа-файли стираються тільки після успішного відновлення БД, а не раніше.
 - Restore має бути захищений від path traversal у ZIP entries.
 - `tools/build_release.php` має створювати clean ZIP.
 - Release ZIP не має містити `.git`, `.env`, `config/database.php`, logs, sessions, backups, dist, uploaded media, `temp_*.php`, `*.bak`, `*.tmp`, `*.zip`.

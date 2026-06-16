@@ -834,13 +834,13 @@ textarea {
     padding: 12px;
     font: inherit;
     border-radius: var(--radius-sm);
-
-    /* Theme toggler icons */
-    .theme-icon-light { display: none; }
-    html[data-theme="light"] .theme-icon-dark { display: none; }
-    html[data-theme="light"] .theme-icon-light { display: block !important; }
     transition: border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Theme toggler icons */
+.theme-icon-light { display: none; }
+html[data-theme="light"] .theme-icon-dark { display: none; }
+html[data-theme="light"] .theme-icon-light { display: block !important; }
 
 input[type="checkbox"],
 input[type="radio"] {

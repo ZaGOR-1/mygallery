@@ -28,6 +28,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect('admin/index.php');
 }
 
+function share_token_fingerprint(string $token): string
+{
+    return substr($token, 0, 6) . '…(sha256:' . substr(hash('sha256', $token), 0, 12) . ')';
+}
+
 function share_audit_log(string $action, string $details): void
 {
     $logFile = storage_path('logs' . DIRECTORY_SEPARATOR . 'share_audit.log');
@@ -61,7 +66,7 @@ if ($action === 'create_photo_share') {
         $token = bin2hex(random_bytes(16));
         $stmt = db()->prepare('INSERT INTO share_links (token, photo_id, expires_at) VALUES (?, ?, ?)');
         $stmt->execute([$token, $photoId, share_expires_at_from_post()]);
-        share_audit_log('CREATE', "Created photo share link for photo_id=$photoId, token=$token");
+        share_audit_log('CREATE', "Created photo share link for photo_id=$photoId, token_fp=" . share_token_fingerprint($token));
         set_flash('success', 'Створено нове приватне посилання на фото.');
         redirect_to('admin/edit.php', ['id' => $photoId]);
     }
@@ -78,7 +83,7 @@ if ($action === 'create_photo_share') {
         $token = bin2hex(random_bytes(16));
         $stmt = db()->prepare('INSERT INTO share_links (token, album_id, expires_at) VALUES (?, ?, ?)');
         $stmt->execute([$token, $albumId, share_expires_at_from_post()]);
-        share_audit_log('CREATE', "Created album share link for album_id=$albumId, token=$token");
+        share_audit_log('CREATE', "Created album share link for album_id=$albumId, token_fp=" . share_token_fingerprint($token));
         set_flash('success', 'Створено нове приватне посилання на альбом.');
         redirect_to('admin/albums.php', ['edit' => $albumId]);
     }
@@ -92,7 +97,7 @@ if ($action === 'create_photo_share') {
         if ($link) {
             $stmt = db()->prepare('DELETE FROM share_links WHERE id = ?');
             $stmt->execute([$id]);
-            share_audit_log('REVOKE', "Revoked share link with id=$id, token=" . $link['token']);
+            share_audit_log('REVOKE', "Revoked share link with id=$id, token_fp=" . share_token_fingerprint((string) $link['token']));
             set_flash('success', 'Приватне посилання відкликано.');
         } else {
             set_flash('error', 'Посилання не знайдено.');

@@ -1,16 +1,18 @@
 # Audit Report
 
-Актуально для MyGallery v6.4.6 після виправлення medium issues з `FULL_PROJECT_AUDIT.md`.
+Актуально для MyGallery v6.4.8 після аудиту 2026-06-16. Повний робочий звіт зі списком проблем — `docs/AUDIT_FINDINGS_2026-06-16.md`.
 
-## Latest Audit Summary
+## Latest Audit Summary (2026-06-16, стан після C1+H1 фіксів)
 
-| Severity | Count |
-|---|---:|
-| Critical | 0 |
-| High | 0 |
-| Medium | 0 |
-| Low | 6 |
-| Informational | 7 |
+| Severity | Count | Стан |
+|---|---:|---|
+| Critical | 1 | ✅ C1 виправлено (v6.4.7) |
+| High | 1 | ✅ H1 виправлено (v6.4.8) |
+| Medium | 8 | ✅ M1–M8 виправлено (v6.4.9 … v6.4.16) |
+| Low | 12 | L1–L12 — відкриті |
+| Informational | — | підтверджено як коректне |
+
+Обидва блокери релізу (C1 — обхід локауту входу; H1 — витік приватних оригіналів у ZIP) закрито. Medium/Low — у бэклозі, деталі та порядок виправлень у `docs/AUDIT_FINDINGS_2026-06-16.md`.
 
 ## Що виправлено після повного аудиту
 

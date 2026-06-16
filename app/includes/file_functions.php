@@ -677,6 +677,15 @@ function get_image_dominant_color(string $filepath): ?string
     return sprintf('#%02x%02x%02x', $r, $g, $b);
 }
 
+/**
+ * Derivative (.webp/.avif) path that would be produced for a given JPEG path.
+ * Used both when creating derivatives and when cleaning up after a failed upload.
+ */
+function derivative_path(string $jpegPath, string $extension): string
+{
+    return preg_replace('/\.jpe?g$/i', '.' . $extension, $jpegPath);
+}
+
 function create_webp_copy(string $jpegPath): void
 {
     if (!function_exists('imagewebp') || !is_file($jpegPath)) {
@@ -688,10 +697,17 @@ function create_webp_copy(string $jpegPath): void
         return;
     }
 
-    $webpPath = preg_replace('/\.jpe?g$/i', '.webp', $jpegPath);
+    $webpPath = derivative_path($jpegPath, 'webp');
     $quality = app_config()['IMAGE_QUALITY_WEBP'] ?? 85;
-    @imagewebp($image, $webpPath, (int)$quality);
+    $ok = @imagewebp($image, $webpPath, (int)$quality);
     imagedestroy($image);
+
+    if ($ok === false || !is_file($webpPath) || filesize($webpPath) === 0) {
+        // Partial/zero write would still pass an "exists" check and reach srcset — drop it.
+        if (is_file($webpPath)) {
+            unlink_file_with_log($webpPath, 'Failed WebP derivative cleanup');
+        }
+    }
 }
 
 function create_avif_copy(string $jpegPath): void
@@ -705,10 +721,17 @@ function create_avif_copy(string $jpegPath): void
         return;
     }
 
-    $avifPath = preg_replace('/\.jpe?g$/i', '.avif', $jpegPath);
+    $avifPath = derivative_path($jpegPath, 'avif');
     $quality = app_config()['IMAGE_QUALITY_AVIF'] ?? 65;
-    @imageavif($image, $avifPath, (int)$quality);
+    $ok = @imageavif($image, $avifPath, (int)$quality);
     imagedestroy($image);
+
+    if ($ok === false || !is_file($avifPath) || filesize($avifPath) === 0) {
+        // Partial/zero write would still pass an "exists" check and reach srcset — drop it.
+        if (is_file($avifPath)) {
+            unlink_file_with_log($avifPath, 'Failed AVIF derivative cleanup');
+        }
+    }
 }
 
 function photo_display_url(array $photo): string

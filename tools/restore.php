@@ -265,24 +265,33 @@ if ($confirmation !== 'RESTORE') {
     exit(1);
 }
 
-$tmpSql = tempnam(sys_get_temp_dir(), 'mygallery_restore_');
-if ($tmpSql === false || file_put_contents($tmpSql, $validatedBackup['sql']) === false) {
-    fwrite(STDERR, "Не вдалося створити тимчасовий SQL-файл.\n");
-    $zip->close();
-    exit(1);
-}
+// Дамп нового формату містить лише DML (DELETE+INSERT), тож його можна застосувати
+// однією транзакцією: будь-який збій посередині повністю відкочується, і БД лишається
+// у попередньому консистентному стані (медіа стираються лише після успіху нижче).
+// Старі бекапи містять `LOCK TABLES`, які в MySQL роблять неявний COMMIT і несумісні
+// з транзакцією, тому для них зберігаємо попередню (неатомарну) поведінку.
+$pdo = db();
+$dumpHasTableLocks = preg_match('/^\s*LOCK TABLES/im', $validatedBackup['sql']) === 1;
 
 try {
-    $pdo = db();
-    $pdo->exec($validatedBackup['sql']);
+    if ($dumpHasTableLocks) {
+        fwrite(STDERR, "Увага: бекап старого формату (LOCK TABLES) — відновлення БД не транзакційне.\n");
+        $pdo->exec($validatedBackup['sql']);
+    } else {
+        $pdo->beginTransaction();
+        $pdo->exec($validatedBackup['sql']);
+        $pdo->commit();
+    }
     echo "Базу даних успішно відновлено.\n";
 } catch (Throwable $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     fwrite(STDERR, "Помилка відновлення БД: " . $e->getMessage() . "\n");
-    @unlink($tmpSql);
+    fwrite(STDERR, "Зміни до БД відкочено, медіа-файли не змінювалися.\n");
     $zip->close();
     exit(1);
 }
-@unlink($tmpSql);
 
 echo "Очищення поточних медіа-файлів...\n";
 clean_directory(originals_path());

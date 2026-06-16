@@ -132,8 +132,16 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
         }
 
         if ($originalPath !== null) unlink_file_with_log($originalPath, 'Upload cleanup');
-        if ($largePath !== null) unlink_file_with_log($largePath, 'Upload cleanup');
-        if ($thumbnailPath !== null) unlink_file_with_log($thumbnailPath, 'Upload cleanup');
+        if ($largePath !== null) {
+            unlink_file_with_log($largePath, 'Upload cleanup');
+            unlink_file_with_log(derivative_path($largePath, 'webp'), 'Upload cleanup');
+            unlink_file_with_log(derivative_path($largePath, 'avif'), 'Upload cleanup');
+        }
+        if ($thumbnailPath !== null) {
+            unlink_file_with_log($thumbnailPath, 'Upload cleanup');
+            unlink_file_with_log(derivative_path($thumbnailPath, 'webp'), 'Upload cleanup');
+            unlink_file_with_log(derivative_path($thumbnailPath, 'avif'), 'Upload cleanup');
+        }
 
         throw $exception;
     }
@@ -286,7 +294,7 @@ function delete_album_with_validation(PDO $pdo, int $albumId): void
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        throw clone $exception;
+        throw $exception;
     }
 }
 

@@ -809,7 +809,7 @@ function normalize_gallery_filters(array $input): array
     ];
 }
 
-function build_gallery_where_clause(array $filters, array &$params, bool $includeOriginalName = false): string
+function build_gallery_where_clause(array $filters, array &$params, bool $includeOriginalName = false, bool $includePrivate = false): string
 {
     $where = [];
     $joinSql = '';
@@ -844,12 +844,11 @@ function build_gallery_where_clause(array $filters, array &$params, bool $includ
         $params['date_to'] = $filters['date_to'] . ' 23:59:59';
     }
 
-    // If not in admin view, exclude private albums
-    if (!$includeOriginalName) {
-        global $isSharedView;
-        if (!($isSharedView ?? false)) {
-            $where[] = '(albums.is_private IS NULL OR albums.is_private = 0)';
-        }
+    // Exclude private albums unless this is an admin view ($includeOriginalName) or an
+    // authorized shared view ($includePrivate). The privacy decision is passed explicitly
+    // by the caller — never read from a global — so no future call can silently widen it.
+    if (!$includeOriginalName && !$includePrivate) {
+        $where[] = '(albums.is_private IS NULL OR albums.is_private = 0)';
     }
 
     $whereSql = empty($where) ? '' : ' WHERE ' . implode(' AND ', $where);
@@ -857,10 +856,10 @@ function build_gallery_where_clause(array $filters, array &$params, bool $includ
     return $joinSql . $whereSql;
 }
 
-function count_photos(PDO $pdo, array $filters, bool $includeOriginalName = false): int
+function count_photos(PDO $pdo, array $filters, bool $includeOriginalName = false, bool $includePrivate = false): int
 {
     $params = [];
-    $sqlSuffix = build_gallery_where_clause($filters, $params, $includeOriginalName);
+    $sqlSuffix = build_gallery_where_clause($filters, $params, $includeOriginalName, $includePrivate);
 
     $stmt = $pdo->prepare('SELECT COUNT(DISTINCT photos.id) FROM photos LEFT JOIN albums ON albums.id = photos.album_id' . $sqlSuffix);
     foreach ($params as $key => $value) {
@@ -871,7 +870,7 @@ function count_photos(PDO $pdo, array $filters, bool $includeOriginalName = fals
     return (int) $stmt->fetchColumn();
 }
 
-function fetch_photos(PDO $pdo, array $filters, int $limit, int $offset, bool $includeOriginalName = false): array
+function fetch_photos(PDO $pdo, array $filters, int $limit, int $offset, bool $includeOriginalName = false, bool $includePrivate = false): array
 {
     $sortSql = [
         'newest' => 'photos.created_at DESC, photos.id DESC',
@@ -885,7 +884,7 @@ function fetch_photos(PDO $pdo, array $filters, int $limit, int $offset, bool $i
     $sort = array_key_exists($filters['sort'], $sortSql) ? $filters['sort'] : 'newest';
 
     $params = [];
-    $sqlSuffix = build_gallery_where_clause($filters, $params, $includeOriginalName);
+    $sqlSuffix = build_gallery_where_clause($filters, $params, $includeOriginalName, $includePrivate);
 
     $selectCols = 'photos.id, photos.filename, photos.thumbnail_filename, photos.width, photos.title, photos.camera_model, photos.taken_at, photos.dominant_color, albums.name AS album_name';
     if ($includeOriginalName) {

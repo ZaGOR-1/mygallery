@@ -110,8 +110,10 @@ function export_table_sql(PDO $pdo, string $table): string
 {
     $stmt = $pdo->query('SELECT * FROM `' . str_replace('`', '``', $table) . '`');
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Без `LOCK TABLES`: у MySQL вони роблять неявний COMMIT і зробили б застосування
+    // дампу в `tools/restore.php` неатомарним. Чистий DML дозволяє відновлювати БД
+    // однією транзакцією.
     $sql = "-- Table: `{$table}`\n";
-    $sql .= "LOCK TABLES `{$table}` WRITE;\n";
     $sql .= "DELETE FROM `{$table}`;\n";
 
     foreach ($rows as $row) {
@@ -120,7 +122,7 @@ function export_table_sql(PDO $pdo, string $table): string
         $sql .= 'INSERT INTO `' . str_replace('`', '``', $table) . '` (' . implode(', ', $columns) . ') VALUES (' . implode(', ', $values) . ");\n";
     }
 
-    $sql .= "UNLOCK TABLES;\n\n";
+    $sql .= "\n";
 
     return $sql;
 }
@@ -171,7 +173,9 @@ try {
 $sql = "-- MyGallery backup\n";
 $sql .= "-- Created at: " . date('c') . "\n";
 $sql .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
-foreach (['admins', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts', 'share_links'] as $table) {
+// `schema_migrations` має бути в дампі: інакше після restore реєстр міграцій порожній
+// і `tools/migrate.php` повторно проганяє всі міграції по вже мігрованих даних.
+foreach (['admins', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts', 'share_links', 'schema_migrations'] as $table) {
     $sql .= export_table_sql($pdo, $table);
 }
 $sql .= "SET FOREIGN_KEY_CHECKS=1;\n";

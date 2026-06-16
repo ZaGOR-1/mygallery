@@ -32,7 +32,23 @@ try {
         echo "Running migration: {$filename}\n";
         $sql = file_get_contents($file);
         if ($sql !== false && trim($sql) !== '') {
-            $pdo->exec($sql);
+            // УВАГА: DDL у MySQL (CREATE/ALTER/PREPARE...) робить неявний COMMIT, тож
+            // обгортати міграцію в транзакцію марно — багатокрокова міграція не може
+            // бути атомарною на рівні рушія. Тому кожна міграція ЗОБОВ'ЯЗАНА бути
+            // ідемпотентною (IF NOT EXISTS / IF EXISTS / перевірки information_schema):
+            // якщо вона впаде посередині, її не буде записано до schema_migrations і
+            // повторний запуск безпечно догнав стан, не падаючи на вже застосованих кроках.
+            try {
+                $pdo->exec($sql);
+            } catch (Throwable $migrationError) {
+                throw new RuntimeException(
+                    "Міграцію '{$filename}' не застосовано (можливо, частково). "
+                    . "Виправте причину і запустіть міграції повторно — усі міграції мають "
+                    . "бути ідемпотентними. Деталі: " . $migrationError->getMessage(),
+                    0,
+                    $migrationError
+                );
+            }
         }
         $stmt = $pdo->prepare('INSERT INTO schema_migrations (migration) VALUES (?)');
         $stmt->execute([$filename]);

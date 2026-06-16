@@ -44,8 +44,19 @@ while (ob_get_level() > 0) {
     ob_end_clean();
 }
 
+$mimeType = (string) ($photo['mime_type'] ?? '');
+if ($mimeType === '') {
+    $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+    $mimeType = [
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'webp' => 'image/webp',
+        'avif' => 'image/avif',
+    ][$extension] ?? 'application/octet-stream';
+}
+
 send_security_headers();
-header('Content-Type: image/jpeg');
+header('Content-Type: ' . $mimeType);
 header('Content-Disposition: attachment; filename="' . addcslashes($asciiName, '"\\') . '"; filename*=UTF-8\'\'' . $encodedName);
 header('Content-Transfer-Encoding: binary');
 header('X-Content-Type-Options: nosniff');
