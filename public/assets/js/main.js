@@ -136,21 +136,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Theme toggle — must run before the lightbox early-return below, otherwise
-    // pages without photos (admin, login, empty gallery) never wire up the toggle.
-    var themeToggleBtn = document.getElementById('theme-toggle');
-    if (themeToggleBtn) {
-        themeToggleBtn.addEventListener('click', function () {
-            var currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-            var newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-
-            document.documentElement.setAttribute('data-theme', newTheme);
-            try {
-                localStorage.setItem('theme', newTheme);
-            } catch (e) {}
-        });
-    }
-
     var lightboxLinks = document.querySelectorAll('a[data-lightbox-src]');
 
     if (lightboxLinks.length === 0) {

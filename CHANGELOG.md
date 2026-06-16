@@ -1,5 +1,18 @@
 # Changelog
 
+## v6.4.20
+
+- UI: removed the light theme entirely — the gallery is now dark-only. Deleted the `:root[data-theme="light"]` token block, the `html[data-theme="light"]` `color-scheme` rule and the `.theme-toggle` / `.theme-icon-*` styles from `public/assets/css/style.css`; removed the theme-toggle button and its SVG icons plus the inline `localStorage` theme-restore script from `app/includes/header.php`; and removed the toggle click handler from `public/assets/js/main.js`. The refined dark palette and modern component styling from v6.4.19 are kept as the single theme; no `data-theme` attribute is set anywhere anymore.
+
+## v6.4.19
+
+- UI: rebuilt the visual design into a cohesive, modern theme system, with a focus on fixing the previously poor light theme.
+  - **Light theme** is now a warm ivory palette (`#f6f4ef` background, warm borders, refined amber-gold accent `#bd8a2e`) instead of the old flat cold gray, so it reads as designed rather than a raw inversion and stays on-brand with the gallery's warm photographic identity.
+  - **Themed every surface.** Several backgrounds were hardcoded dark (`#050505`, `#0b0b0b`, `#0f0f0f`, `#080808`, `rgba(16,16,16,…)`, `rgba(24,24,24,…)`) and stayed black in light mode; they now use theme tokens (`--image-bg`, `--panel-light`, `--overlay`, `--photo-scrim`, `--scrim-rgb`). The hero/album-card scrim gradients are now token-driven, which also fixes the mobile hero scrim staying dark in light mode.
+  - **New design tokens** in `:root`: `--accent-rgb` / `--accent-strong` / `--accent-contrast`, `--danger-strong` / `--danger-contrast`, `--overlay`, `--photo-scrim`, `--scrim-rgb`, `--ring`, and layered `--shadow-sm/md/lg` (warm, softer shadows in light mode). All scattered `rgba(214,167,86,…)` accent literals now resolve through `--accent-rgb` so they follow the active theme.
+  - **Modernized components:** buttons get a subtle gradient sheen, hover lift and focus ring; inputs use a soft focus ring instead of a hard outline; larger, consistent corner radii; pill-shaped tags/status badges; rounded image containers, panels, stat cards, lightbox controls and the share/error/empty-state panels; the theme-toggle is now a circular icon button; and a smooth color transition plays when switching themes.
+  - Fixed the malformed moon-icon SVG arc (`A9 9 9 0 1` → `A9 9 0 0 1`) in `app/includes/header.php` so the dark-mode icon renders as a clean crescent.
+
 ## v6.4.18
 
 - Bugfix: the light/dark theme toggle now works on every page. The toggle's click handler was registered at the very end of the single `DOMContentLoaded` callback in `public/assets/js/main.js`, *after* the lightbox setup's early `return` (`if (lightboxLinks.length === 0) return;`). On any page without lightbox photo links — admin pages, the login page, album lists, an empty gallery — the callback bailed out before reaching the toggle code, so the button was never wired up and clicking it did nothing. The toggle setup now runs *before* that early return, so it is always attached. (The theme variables, the `header.php` restore script and the toggle logic itself were already correct.)
