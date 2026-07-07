@@ -519,6 +519,7 @@ function get_public_albums_with_covers(bool $includePrivate = false): array
             a.cover_photo_id,
             a.sort_order,
             a.is_private,
+            p.id AS photo_id,
             p.filename,
             p.thumbnail_filename,
             p.width,
@@ -539,7 +540,7 @@ function get_public_albums_with_covers(bool $includePrivate = false): array
         END
         LEFT JOIN photos p2 ON p2.album_id = a.id
         $where
-        GROUP BY a.id, a.name, a.cover_photo_id, a.sort_order, a.is_private, p.filename, p.thumbnail_filename, p.width, p.title, p.dominant_color
+        GROUP BY a.id, a.name, a.cover_photo_id, a.sort_order, a.is_private, p.id, p.filename, p.thumbnail_filename, p.width, p.title, p.dominant_color
         ORDER BY a.sort_order ASC, a.name ASC"
     );
 
@@ -653,14 +654,43 @@ function get_tag_id_from_request(string $key = 'tag_id'): ?int
     return $id === false || $id === null || $id < 1 ? null : $id;
 }
 
-function get_tag_options(bool $withCounts = false): array
+function get_tag_options(bool $withCounts = false, bool $includePrivate = true): array
 {
     if ($withCounts) {
+        if (!$includePrivate) {
+            $stmt = db()->query(
+                'SELECT tags.id, tags.name, tags.slug, COUNT(DISTINCT photo_tags.photo_id) AS photo_count
+                FROM tags
+                INNER JOIN photo_tags ON photo_tags.tag_id = tags.id
+                INNER JOIN photos ON photos.id = photo_tags.photo_id
+                LEFT JOIN albums ON albums.id = photos.album_id
+                WHERE albums.is_private IS NULL OR albums.is_private = 0
+                GROUP BY tags.id, tags.name, tags.slug
+                ORDER BY tags.name ASC'
+            );
+
+            return $stmt->fetchAll();
+        }
+
         $stmt = db()->query(
             'SELECT tags.id, tags.name, tags.slug, COUNT(photo_tags.photo_id) AS photo_count
             FROM tags
             LEFT JOIN photo_tags ON photo_tags.tag_id = tags.id
             GROUP BY tags.id, tags.name, tags.slug
+            ORDER BY tags.name ASC'
+        );
+
+        return $stmt->fetchAll();
+    }
+
+    if (!$includePrivate) {
+        $stmt = db()->query(
+            'SELECT DISTINCT tags.id, tags.name, tags.slug
+            FROM tags
+            INNER JOIN photo_tags ON photo_tags.tag_id = tags.id
+            INNER JOIN photos ON photos.id = photo_tags.photo_id
+            LEFT JOIN albums ON albums.id = photos.album_id
+            WHERE albums.is_private IS NULL OR albums.is_private = 0
             ORDER BY tags.name ASC'
         );
 
@@ -925,12 +955,20 @@ function fetch_photo_by_id(PDO $pdo, int $id): ?array
 
 function fetch_filter_options(PDO $pdo, bool $includePrivate = false): array
 {
+    $cameraSql = $includePrivate
+        ? "SELECT DISTINCT camera_model FROM photos WHERE camera_model IS NOT NULL AND camera_model <> '' ORDER BY camera_model ASC"
+        : "SELECT DISTINCT photos.camera_model
+            FROM photos
+            LEFT JOIN albums ON albums.id = photos.album_id
+            WHERE photos.camera_model IS NOT NULL
+              AND photos.camera_model <> ''
+              AND (albums.is_private IS NULL OR albums.is_private = 0)
+            ORDER BY photos.camera_model ASC";
+
     return [
         'albums' => get_album_options(true, $includePrivate),
-        'tags' => get_tag_options(true),
-        'cameras' => $pdo
-            ->query("SELECT DISTINCT camera_model FROM photos WHERE camera_model IS NOT NULL AND camera_model <> '' ORDER BY camera_model ASC")
-            ->fetchAll(PDO::FETCH_COLUMN)
+        'tags' => get_tag_options(true, $includePrivate),
+        'cameras' => $pdo->query($cameraSql)->fetchAll(PDO::FETCH_COLUMN)
     ];
 }
 

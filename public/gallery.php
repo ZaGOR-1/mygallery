@@ -17,6 +17,7 @@ $tagId = $filters['tag_id'];
 $dateFrom = $filters['date_from'];
 $dateTo = $filters['date_to'];
 $sort = $filters['sort'];
+$mediaToken = $isSharedView ? (string) ($token ?? '') : null;
 
 $sortOptions = [
     'newest' => 'Новіші спочатку',
@@ -70,8 +71,13 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
 $selectedAlbumName = null;
 if ($albumId !== null) {
     try {
-        $stmt = db()->prepare('SELECT name FROM albums WHERE id = ?');
-        $stmt->execute([$albumId]);
+        if ($isSharedView) {
+            $stmt = db()->prepare('SELECT name FROM albums WHERE id = ?');
+            $stmt->execute([$albumId]);
+        } else {
+            $stmt = db()->prepare('SELECT name FROM albums WHERE id = ? AND is_private = 0');
+            $stmt->execute([$albumId]);
+        }
         $albumRow = $stmt->fetch();
         if ($albumRow) {
             $selectedAlbumName = (string) $albumRow['name'];
@@ -178,19 +184,19 @@ if ($albumId !== null) {
                 <?php endif; ?>
                     <picture>
                         <?php
-                        $avifSrcset = photo_responsive_srcset_next_gen($photo, 'avif');
+                        $avifSrcset = photo_responsive_srcset_next_gen($photo, 'avif', $mediaToken);
                         if ($avifSrcset !== ''): ?>
                             <source srcset="<?= h($avifSrcset) ?>" type="image/avif" sizes="<?= h(photo_card_sizes()) ?>">
                         <?php endif; ?>
                         <?php
-                        $webpSrcset = photo_responsive_srcset_next_gen($photo, 'webp');
+                        $webpSrcset = photo_responsive_srcset_next_gen($photo, 'webp', $mediaToken);
                         if ($webpSrcset !== ''): ?>
                             <source srcset="<?= h($webpSrcset) ?>" type="image/webp" sizes="<?= h(photo_card_sizes()) ?>">
                         <?php endif; ?>
                         <img
                             data-dominant-color="<?= h((string) ($photo['dominant_color'] ?? '')) ?>"
-                            src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
-                            srcset="<?= h(photo_responsive_srcset($photo)) ?>"
+                            src="<?= h(photo_media_url($photo, 'thumbnail', 'jpg', $mediaToken)) ?>"
+                            srcset="<?= h(photo_responsive_srcset($photo, $mediaToken)) ?>"
                             sizes="<?= h(photo_card_sizes()) ?>"
                             alt="<?= h($photo['title']) ?>"
                             width="600"

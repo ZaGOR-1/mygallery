@@ -227,6 +227,8 @@ function check_upload_protection_files(): void
 {
     assert_true(is_file(public_path('uploads' . DIRECTORY_SEPARATOR . '.htaccess')), 'public/uploads/.htaccess missing.');
     assert_true(is_file(uploads_path('originals', '.htaccess')), 'public/uploads/originals/.htaccess missing.');
+    assert_true(is_file(uploads_path('large', '.htaccess')), 'public/uploads/large/.htaccess missing.');
+    assert_true(is_file(uploads_path('thumbnails', '.htaccess')), 'public/uploads/thumbnails/.htaccess missing.');
 }
 
 function check_required_tool_files(): void
@@ -270,7 +272,7 @@ function check_database_schema(): void
         throw new RuntimeException('Cannot connect to database: ' . $e->getMessage());
     }
 
-    $requiredTables = ['admins', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts', 'share_links'];
+    $requiredTables = ['admins', 'schema_migrations', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts', 'share_links'];
     foreach ($requiredTables as $table) {
         $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($table));
         assert_true($stmt->fetch() !== false, 'Database table missing: ' . $table);

@@ -80,17 +80,26 @@ function count_files_in_zip_dir(ZipArchive $zip, string $dir): int {
 $actualOriginals = count_files_in_zip_dir($zip, 'mygallery_backup/storage/originals/');
 $actualLarge = count_files_in_zip_dir($zip, 'mygallery_backup/public/uploads/large/');
 $actualThumbnails = count_files_in_zip_dir($zip, 'mygallery_backup/public/uploads/thumbnails/');
+$hasMismatch = false;
 
-if ($actualOriginals < $expectedOriginals) {
-    fwrite(STDERR, "Попередження: кількість оригіналів в архіві ($actualOriginals) менша за заявлену в manifest ($expectedOriginals).\n");
+if ($actualOriginals !== $expectedOriginals) {
+    fwrite(STDERR, "Помилка: кількість оригіналів в архіві ($actualOriginals) не збігається з manifest ($expectedOriginals).\n");
+    $hasMismatch = true;
 }
 
-if ($actualLarge < $expectedLarge) {
-    fwrite(STDERR, "Попередження: кількість large-версій в архіві ($actualLarge) менша за заявлену в manifest ($expectedLarge).\n");
+if ($actualLarge !== $expectedLarge) {
+    fwrite(STDERR, "Помилка: кількість large-версій в архіві ($actualLarge) не збігається з manifest ($expectedLarge).\n");
+    $hasMismatch = true;
 }
 
-if ($actualThumbnails < $expectedThumbnails) {
-    fwrite(STDERR, "Попередження: кількість thumbnails в архіві ($actualThumbnails) менша за заявлену в manifest ($expectedThumbnails).\n");
+if ($actualThumbnails !== $expectedThumbnails) {
+    fwrite(STDERR, "Помилка: кількість thumbnails в архіві ($actualThumbnails) не збігається з manifest ($expectedThumbnails).\n");
+    $hasMismatch = true;
+}
+
+if ($hasMismatch) {
+    $zip->close();
+    exit(1);
 }
 
 echo "Перевірка backup архіву успішна.\n";

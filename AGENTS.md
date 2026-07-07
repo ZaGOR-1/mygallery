@@ -204,12 +204,14 @@ mygallery/
 │   ├── download_album.php
 │   ├── gallery.php
 │   ├── index.php
+│   ├── media.php
 │   ├── photo.php
 │   └── share.php
 ├── storage/
 │   ├── originals/                 приватні byte-for-byte оригінали
 │   ├── trash/                     тимчасовий кошик і manifest-файли
 │   ├── logs/
+│   ├── share_ratelimit/           runtime-ліміти для public share token
 │   └── sessions/
 ├── tools/
 │   ├── backfill_sha256.php
@@ -310,6 +312,8 @@ PDO::ATTR_EMULATE_PREPARES => false,
 - Byte-for-byte оригінал зберігай у `storage/originals`.
 - Optimized large version зберігай у `public/uploads/large`.
 - Thumbnail зберігай у `public/uploads/thumbnails`.
+- Не виводь direct `/uploads/large/...` або `/uploads/thumbnails/...` URL у HTML. Видавай derivatives через `public/media.php`, щоб приватні альбоми перевіряли admin session або share token.
+- `public/uploads/large/.htaccess` і `public/uploads/thumbnails/.htaccess` мають забороняти прямий web-доступ; PHP читає ці файли з диска через `media.php`.
 - WebP/AVIF variants створюй тільки як похідні файли, не як заміну приватного оригіналу.
 - Не зберігай нові оригінали в `public/uploads/originals`.
 - Максимальний розмір одного файла — 50 МБ, якщо config не задає інше.
@@ -378,6 +382,7 @@ PDO::ATTR_EMULATE_PREPARES => false,
 - не показуй системні шляхи;
 - не показуй SQL-помилки;
 - не дозволяй виконання PHP у `public/uploads`;
+- не дозволяй прямий браузерний доступ до `public/uploads/large` і `public/uploads/thumbnails`;
 - не відкривай `storage/` через браузер;
 - `tools/*.php` запускай тільки з CLI;
 - не зберігай стандартний пароль адміністратора у відкритому вигляді;
@@ -432,7 +437,7 @@ Delete має використовувати `storage/trash` і JSON manifest, �
 - Медіа-файли стираються тільки після успішного відновлення БД, а не раніше.
 - Restore має бути захищений від path traversal у ZIP entries.
 - `tools/build_release.php` має створювати clean ZIP.
-- Release ZIP не має містити `.git`, `.env`, `config/database.php`, logs, sessions, backups, dist, uploaded media, `temp_*.php`, `*.bak`, `*.tmp`, `*.zip`.
+- Release ZIP не має містити `.git`, `.env`, `config/database.php`, logs, sessions, share-rate-limit files, backups, dist, uploaded media, `temp_*.php`, `*.bak`, `*.tmp`, `*.zip`.
 
 ## HTML, CSS і JavaScript
 
@@ -582,6 +587,7 @@ unzip -t dist/*.zip
 - `config/database.php`;
 - завантажені JPEG/WebP/AVIF;
 - `storage/originals/*`;
+- `storage/share_ratelimit/*`, крім `.gitkeep`;
 - `public/uploads/large/*`;
 - `public/uploads/thumbnails/*`;
 - `*.log`;

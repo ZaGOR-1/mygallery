@@ -29,6 +29,25 @@ function uploads_url(string $folder, string $filename): string
     return url('uploads/' . $folder . '/' . rawurlencode($filename));
 }
 
+function photo_media_id(array $photo): int
+{
+    if (array_key_exists('photo_id', $photo)) {
+        return max(0, (int) $photo['photo_id']);
+    }
+
+    return max(0, (int) ($photo['id'] ?? 0));
+}
+
+function photo_media_url(array $photo, string $variant, string $format = 'jpg', ?string $token = null): string
+{
+    return url_with_query('media.php', [
+        'id' => photo_media_id($photo),
+        'variant' => $variant,
+        'format' => $format,
+        'token' => $token,
+    ]);
+}
+
 function originals_path(string $filename = ''): string
 {
     $path = storage_path('originals');
@@ -734,25 +753,25 @@ function create_avif_copy(string $jpegPath): void
     }
 }
 
-function photo_display_url(array $photo): string
+function photo_display_url(array $photo, ?string $token = null): string
 {
     $filename = (string) $photo['filename'];
 
     if (safe_existing_upload_file_path('large', $filename) !== null) {
-        return uploads_url('large', $filename);
+        return photo_media_url($photo, 'large', 'jpg', $token);
     }
 
-    return uploads_url('thumbnails', (string) $photo['thumbnail_filename']);
+    return photo_media_url($photo, 'thumbnail', 'jpg', $token);
 }
 
-function photo_responsive_srcset(array $photo): string
+function photo_responsive_srcset(array $photo, ?string $token = null): string
 {
     $items = [];
     $thumbnail = (string) ($photo['thumbnail_filename'] ?? '');
     $filename = (string) ($photo['filename'] ?? '');
 
     if ($thumbnail !== '' && safe_existing_upload_file_path('thumbnails', $thumbnail) !== null) {
-        $items[] = uploads_url('thumbnails', $thumbnail) . ' 600w';
+        $items[] = photo_media_url($photo, 'thumbnail', 'jpg', $token) . ' 600w';
     }
 
     if ($filename !== '' && safe_existing_upload_file_path('large', $filename) !== null) {
@@ -760,14 +779,14 @@ function photo_responsive_srcset(array $photo): string
         $largeWidth = $largeWidth > 0 ? min($largeWidth, (int) app_config()['LARGE_MAX_WIDTH']) : (int) app_config()['LARGE_MAX_WIDTH'];
 
         if ($largeWidth > 600) {
-            $items[] = uploads_url('large', $filename) . ' ' . $largeWidth . 'w';
+            $items[] = photo_media_url($photo, 'large', 'jpg', $token) . ' ' . $largeWidth . 'w';
         }
     }
 
     return implode(', ', $items);
 }
 
-function photo_cover_srcset(array $photo): string
+function photo_cover_srcset(array $photo, ?string $token = null): string
 {
     $filename = (string) ($photo['filename'] ?? '');
 
@@ -775,13 +794,13 @@ function photo_cover_srcset(array $photo): string
         $largeWidth = (int) ($photo['width'] ?? 0);
         $largeWidth = $largeWidth > 0 ? min($largeWidth, (int) app_config()['LARGE_MAX_WIDTH']) : (int) app_config()['LARGE_MAX_WIDTH'];
 
-        return uploads_url('large', $filename) . ' ' . $largeWidth . 'w';
+        return photo_media_url($photo, 'large', 'jpg', $token) . ' ' . $largeWidth . 'w';
     }
 
-    return photo_responsive_srcset($photo);
+    return photo_responsive_srcset($photo, $token);
 }
 
-function photo_responsive_srcset_next_gen(array $photo, string $extension): string
+function photo_responsive_srcset_next_gen(array $photo, string $extension, ?string $token = null): string
 {
     $items = [];
     $thumbnail = (string) ($photo['thumbnail_filename'] ?? '');
@@ -790,7 +809,7 @@ function photo_responsive_srcset_next_gen(array $photo, string $extension): stri
     if ($thumbnail !== '') {
         $nextGenThumb = preg_replace('/\.jpe?g$/i', '.' . $extension, $thumbnail);
         if (safe_existing_upload_file_path('thumbnails', $nextGenThumb) !== null) {
-            $items[] = uploads_url('thumbnails', $nextGenThumb) . ' 600w';
+            $items[] = photo_media_url($photo, 'thumbnail', $extension, $token) . ' 600w';
         }
     }
 
@@ -799,7 +818,7 @@ function photo_responsive_srcset_next_gen(array $photo, string $extension): stri
         if (safe_existing_upload_file_path('large', $nextGenLarge) !== null) {
             $largeWidth = (int) ($photo['width'] ?? 0);
             if ($largeWidth > 0) {
-                $items[] = uploads_url('large', $nextGenLarge) . ' ' . $largeWidth . 'w';
+                $items[] = photo_media_url($photo, 'large', $extension, $token) . ' ' . $largeWidth . 'w';
             }
         }
     }
@@ -807,7 +826,7 @@ function photo_responsive_srcset_next_gen(array $photo, string $extension): stri
     return implode(', ', $items);
 }
 
-function photo_cover_srcset_next_gen(array $photo, string $extension): string
+function photo_cover_srcset_next_gen(array $photo, string $extension, ?string $token = null): string
 {
     $filename = (string) ($photo['filename'] ?? '');
 
@@ -817,11 +836,11 @@ function photo_cover_srcset_next_gen(array $photo, string $extension): string
             $largeWidth = (int) ($photo['width'] ?? 0);
             $largeWidth = $largeWidth > 0 ? min($largeWidth, (int) app_config()['LARGE_MAX_WIDTH']) : (int) app_config()['LARGE_MAX_WIDTH'];
 
-            return uploads_url('large', $nextGenLarge) . ' ' . $largeWidth . 'w';
+            return photo_media_url($photo, 'large', $extension, $token) . ' ' . $largeWidth . 'w';
         }
     }
 
-    return photo_responsive_srcset_next_gen($photo, $extension);
+    return photo_responsive_srcset_next_gen($photo, $extension, $token);
 }
 
 function photo_card_sizes(): string

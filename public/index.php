@@ -11,16 +11,17 @@ try {
         'SELECT photos.id, photos.title, photos.filename, photos.thumbnail_filename, photos.width, photos.camera_model, photos.taken_at, photos.created_at, albums.name AS album_name
         FROM photos
         LEFT JOIN albums ON albums.id = photos.album_id
+        WHERE albums.is_private IS NULL OR albums.is_private = 0
         ORDER BY photos.created_at DESC, photos.id DESC
         LIMIT 8'
     );
     $latestPhotos = $stmt->fetchAll();
 
     $stats = [
-        'photos' => (int) db()->query('SELECT COUNT(*) FROM photos')->fetchColumn(),
-        'albums' => (int) db()->query('SELECT COUNT(*) FROM albums')->fetchColumn(),
-        'cameras' => (int) db()->query("SELECT COUNT(DISTINCT camera_model) FROM photos WHERE camera_model IS NOT NULL AND camera_model <> ''")->fetchColumn(),
-        'latest' => (string) (db()->query('SELECT MAX(created_at) FROM photos')->fetchColumn() ?: ''),
+        'photos' => (int) db()->query('SELECT COUNT(*) FROM photos LEFT JOIN albums ON albums.id = photos.album_id WHERE albums.is_private IS NULL OR albums.is_private = 0')->fetchColumn(),
+        'albums' => (int) db()->query('SELECT COUNT(*) FROM albums WHERE is_private = 0')->fetchColumn(),
+        'cameras' => (int) db()->query("SELECT COUNT(DISTINCT photos.camera_model) FROM photos LEFT JOIN albums ON albums.id = photos.album_id WHERE photos.camera_model IS NOT NULL AND photos.camera_model <> '' AND (albums.is_private IS NULL OR albums.is_private = 0)")->fetchColumn(),
+        'latest' => (string) (db()->query('SELECT MAX(photos.created_at) FROM photos LEFT JOIN albums ON albums.id = photos.album_id WHERE albums.is_private IS NULL OR albums.is_private = 0')->fetchColumn() ?: ''),
     ];
 } catch (Throwable $exception) {
     app_http_error('Не вдалося завантажити головну сторінку. Перевірте підключення до бази даних.', 500, $exception);
@@ -122,7 +123,7 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
                             <source srcset="<?= h($webpSrcset) ?>" type="image/webp" sizes="<?= h(photo_card_sizes()) ?>">
                         <?php endif; ?>
                         <img
-                            src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
+                            src="<?= h(photo_media_url($photo, 'thumbnail')) ?>"
                             srcset="<?= h(photo_responsive_srcset($photo)) ?>"
                             sizes="<?= h(photo_card_sizes()) ?>"
                             alt="<?= h($photo['title']) ?>"

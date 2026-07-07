@@ -110,11 +110,11 @@ $filename = (string) ($photo['filename'] ?? '');
 if ($filename !== '') {
     $nextGenWebp = preg_replace('/\.jpe?g$/i', '.webp', $filename);
     if (safe_existing_upload_file_path('large', $nextGenWebp) !== null) {
-        $largeWebpUrl = uploads_url('large', $nextGenWebp);
+        $largeWebpUrl = photo_media_url($photo, 'large', 'webp');
     }
     $nextGenAvif = preg_replace('/\.jpe?g$/i', '.avif', $filename);
     if (safe_existing_upload_file_path('large', $nextGenAvif) !== null) {
-        $largeAvifUrl = uploads_url('large', $nextGenAvif);
+        $largeAvifUrl = photo_media_url($photo, 'large', 'avif');
     }
 }
 

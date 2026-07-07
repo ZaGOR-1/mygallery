@@ -92,8 +92,8 @@ if (!empty($share['expires_at']) && strtotime($share['expires_at']) < time()) {
 function render_shared_photo(array $photo, string $token, ?int $albumId = null) {
     $pageTitle = $photo['title'];
     $exifRows = normalized_exif_for_display($photo['exif_json'], $photo);
-    $photoImageUrl = photo_display_url($photo);
-    $photoSrcset = photo_responsive_srcset($photo);
+    $photoImageUrl = photo_display_url($photo, $token);
+    $photoSrcset = photo_responsive_srcset($photo, $token);
 
     require __DIR__ . '/../app/includes/header.php';
     ?>
@@ -110,12 +110,12 @@ function render_shared_photo(array $photo, string $token, ?int $albumId = null) 
             <a href="<?= h($photoImageUrl) ?>" target="_blank">
                 <picture>
                     <?php
-                    $avifSrcset = photo_responsive_srcset_next_gen($photo, 'avif');
+                    $avifSrcset = photo_responsive_srcset_next_gen($photo, 'avif', $token);
                     if ($avifSrcset !== ''): ?>
                         <source srcset="<?= h($avifSrcset) ?>" type="image/avif" sizes="100vw">
                     <?php endif; ?>
                     <?php
-                    $webpSrcset = photo_responsive_srcset_next_gen($photo, 'webp');
+                    $webpSrcset = photo_responsive_srcset_next_gen($photo, 'webp', $token);
                     if ($webpSrcset !== ''): ?>
                         <source srcset="<?= h($webpSrcset) ?>" type="image/webp" sizes="100vw">
                     <?php endif; ?>

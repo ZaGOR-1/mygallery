@@ -53,6 +53,39 @@ try {
     assert_true($foundPrivate, 'get_album_options(false, true) must return private albums');
     assert_true($foundPublic, 'get_album_options(false, true) must return public albums');
 
+    $privatePhotoFilename = bin2hex(random_bytes(16)) . '.jpg';
+    $privateThumbFilename = bin2hex(random_bytes(16)) . '.jpg';
+    $publicPhotoFilename = bin2hex(random_bytes(16)) . '.jpg';
+    $publicThumbFilename = bin2hex(random_bytes(16)) . '.jpg';
+    $privateCamera = 'Private Camera ' . bin2hex(random_bytes(4));
+    $publicCamera = 'Public Camera ' . bin2hex(random_bytes(4));
+
+    $stmt = $db->prepare(
+        'INSERT INTO photos (album_id, filename, thumbnail_filename, original_name, title, mime_type, file_size, camera_model)
+        VALUES (?, ?, ?, ?, ?, "image/jpeg", 1, ?)'
+    );
+    $stmt->execute([$privateAlbumId, $privatePhotoFilename, $privateThumbFilename, 'private.jpg', 'Private photo', $privateCamera]);
+    $privatePhotoId = (int) $db->lastInsertId();
+    $stmt->execute([$publicAlbumId, $publicPhotoFilename, $publicThumbFilename, 'public.jpg', 'Public photo', $publicCamera]);
+    $publicPhotoId = (int) $db->lastInsertId();
+
+    $privateTag = 'Private Tag ' . bin2hex(random_bytes(4));
+    $publicTag = 'Public Tag ' . bin2hex(random_bytes(4));
+    $privateTagId = find_or_create_tag($privateTag);
+    $publicTagId = find_or_create_tag($publicTag);
+
+    $stmt = $db->prepare('INSERT INTO photo_tags (photo_id, tag_id) VALUES (?, ?)');
+    $stmt->execute([$privatePhotoId, $privateTagId]);
+    $stmt->execute([$publicPhotoId, $publicTagId]);
+
+    $publicFilters = fetch_filter_options($db, false);
+    assert_false(in_array($privateCamera, $publicFilters['cameras'], true), 'Public camera filters must not include private-only cameras');
+    assert_true(in_array($publicCamera, $publicFilters['cameras'], true), 'Public camera filters must include public cameras');
+
+    $publicTagNames = array_map(static fn (array $tag): string => (string) $tag['name'], $publicFilters['tags']);
+    assert_false(in_array($privateTag, $publicTagNames, true), 'Public tag filters must not include private-only tags');
+    assert_true(in_array($publicTag, $publicTagNames, true), 'Public tag filters must include public tags');
+
     // Rollback to clean up database
     $db->rollBack();
 } catch (Throwable $e) {

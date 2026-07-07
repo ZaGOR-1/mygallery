@@ -2,7 +2,7 @@
 
 MVP персональної фотогалереї на PHP 8.2+, Apache і MySQL/MariaDB. Проєкт зроблений як простий студентський PHP-проєкт без Laravel, React, Bootstrap, Composer і зайвої архітектури.
 
-Поточна версія V6 підтримує JPEG-upload, EXIF, приватні оригінали, прев’ю, large-версії фото, альбоми, теги, пошук, фільтри, сортування, лайтбокс із zoom/pan, адмінпанель, статистику, admin health-check, завантаження оригіналу тільки для адміна, CSRF-захист, login rate limiter і службові CLI-інструменти для перевірки, backup, release-збірки та обслуговування.
+Поточна версія V6 підтримує JPEG-upload, EXIF, приватні оригінали, прев’ю, large-версії фото, альбоми, теги, пошук, фільтри, сортування, лайтбокс із zoom/pan, адмінпанель, статистику, admin health-check, захищену видачу оптимізованих зображень через `public/media.php`, завантаження оригіналу тільки для адміна, CSRF-захист, login rate limiter і службові CLI-інструменти для перевірки, backup, release-збірки та обслуговування.
 
 ## Поточний статус
 
@@ -33,6 +33,7 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 - приватне byte-for-byte зберігання оригінальних JPEG у `storage/originals`;
 - веб-версія фото до 4000 px завширшки;
 - прев’ю до 600 px завширшки;
+- protected image delivery через `media.php`: публічні фото доступні всім, приватні derivatives — тільки адміну або через чинний share token;
 - responsive images через `srcset` і `sizes`;
 - автоматичне виправлення EXIF Orientation;
 - базові security headers;
@@ -50,12 +51,13 @@ public/admin/                         адміністративні сторі�
 public/admin/health.php               web health-check тільки для адміністратора
 public/admin/stats.php                статистика контенту і media-сховища
 public/admin/download.php             download приватного оригіналу тільки для адміністратора
+public/media.php                      захищена видача large/thumbnail/WebP/AVIF
 public/assets/                        CSS і JavaScript
 public/.htaccess                      переносимі Apache-правила без php_value і ErrorDocument
 public/404.php                         сторінка помилки 404
 public/500.php                         сторінка помилки 500
-public/uploads/large/                 оптимізовані веб-версії JPEG
-public/uploads/thumbnails/            прев’ю JPEG
+public/uploads/large/                 оптимізовані веб-версії JPEG, прямий web-доступ заборонений
+public/uploads/thumbnails/            прев’ю JPEG, прямий web-доступ заборонений
 public/uploads/originals/             legacy-only папка, нові оригінали тут не зберігати
 storage/originals/                    приватні byte-for-byte оригінальні JPEG
 storage/trash/                        тимчасовий кошик під час видалення
@@ -257,10 +259,10 @@ php tools/setup.php
 
 ```bash
 sudo chown -R root:www-data /var/www/mygallery
-sudo chown -R www-data:www-data /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/storage/sessions /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
+sudo chown -R www-data:www-data /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/storage/sessions /var/www/mygallery/storage/share_ratelimit /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
 sudo find /var/www/mygallery -type d -exec chmod 750 {} \;
 sudo find /var/www/mygallery -type f -exec chmod 640 {} \;
-sudo chmod 750 /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/storage/sessions /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
+sudo chmod 750 /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/storage/sessions /var/www/mygallery/storage/share_ratelimit /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
 ```
 
 Не використовуйте `chmod 777`.
@@ -296,7 +298,7 @@ sudo systemctl reload apache2
 
 ## Nginx Server Block
 
-Якщо ви використовуєте Nginx, зверніть увагу, що файли `.htaccess` будуть проігноровані. Вам необхідно явно закрити доступ до `.php` файлів у директорії `uploads`, а також заборонити доступ до приватних тек.
+Якщо ви використовуєте Nginx, зверніть увагу, що файли `.htaccess` будуть проігноровані. Вам необхідно явно закрити прямий доступ до `uploads/large`, `uploads/thumbnails`, `uploads/originals`, а також до `.php` файлів у `uploads`. Оптимізовані зображення має віддавати `media.php`.
 
 Приклад production-конфігурації для Nginx:
 
@@ -306,6 +308,19 @@ server {
     server_name gallery.example.com;
     root /var/www/mygallery/public;
     index index.php index.html;
+
+    # Оптимізовані фото віддаються через media.php, не напряму зі static uploads
+    location ^~ /uploads/large/ {
+        deny all;
+    }
+
+    location ^~ /uploads/thumbnails/ {
+        deny all;
+    }
+
+    location ^~ /uploads/originals/ {
+        deny all;
+    }
 
     # Блокуємо виконання PHP у папці uploads
     location ^~ /uploads/ {
@@ -446,7 +461,7 @@ php tools/regenerate_images.php --all --dry-run
 php tools/build_release.php
 ```
 
-На виході буде `dist/mygallery_<VERSION>_release.zip`, наприклад `dist/mygallery_6.4.6_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/backup-файли або реальні фото з upload/storage.
+На виході буде `dist/mygallery_<VERSION>_release.zip`, наприклад `dist/mygallery_6.4.20_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/share-rate-limit/backup-файли або реальні фото з upload/storage.
 
 Приватний backup:
 

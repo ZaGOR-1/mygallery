@@ -177,7 +177,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
                             <source srcset="<?= h($webpSrcset) ?>" type="image/webp" sizes="160px">
                         <?php endif; ?>
                         <img
-                            src="<?= h(uploads_url('thumbnails', $photo['thumbnail_filename'])) ?>"
+                            src="<?= h(photo_media_url($photo, 'thumbnail')) ?>"
                             srcset="<?= h(photo_responsive_srcset($photo)) ?>"
                             sizes="160px"
                             alt="<?= h($photo['title']) ?>"

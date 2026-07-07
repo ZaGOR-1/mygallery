@@ -123,7 +123,7 @@ try {
     db()->query('SELECT 1');
     $dbRows[] = health_row('DB connection', 'ok', 'SELECT 1 passed');
 
-    foreach (['admins', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts', 'share_links'] as $table) {
+    foreach (['admins', 'schema_migrations', 'albums', 'photos', 'tags', 'photo_tags', 'login_attempts', 'share_links'] as $table) {
         $stmt = db()->query('SELECT COUNT(*) FROM `' . $table . '`');
         $dbRows[] = health_row('Table `' . $table . '`', 'ok', (string) $stmt->fetchColumn() . ' rows');
     }
@@ -137,6 +137,8 @@ $fileRows = [
     health_row('Legacy originals у public/uploads/originals', $legacyCount === 0 ? 'ok' : 'warn', (string) $legacyCount . ' file(s)'),
     health_row('public/uploads/.htaccess', is_file(public_path('uploads' . DIRECTORY_SEPARATOR . '.htaccess')) ? 'ok' : 'warn', health_yes_no(is_file(public_path('uploads' . DIRECTORY_SEPARATOR . '.htaccess')))),
     health_row('public/uploads/originals/.htaccess', is_file(uploads_path('originals', '.htaccess')) ? 'ok' : 'warn', health_yes_no(is_file(uploads_path('originals', '.htaccess')))),
+    health_row('public/uploads/large/.htaccess', is_file(uploads_path('large', '.htaccess')) ? 'ok' : 'warn', health_yes_no(is_file(uploads_path('large', '.htaccess')))),
+    health_row('public/uploads/thumbnails/.htaccess', is_file(uploads_path('thumbnails', '.htaccess')) ? 'ok' : 'warn', health_yes_no(is_file(uploads_path('thumbnails', '.htaccess')))),
 ];
 
 function render_health_table(string $title, array $rows): void

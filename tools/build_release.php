@@ -92,6 +92,10 @@ function release_should_exclude(string $relative, bool $isDir): bool
         return true;
     }
 
+    if (str_starts_with($relative, 'storage/share_ratelimit/') && $name !== '.gitkeep') {
+        return true;
+    }
+
     if (str_starts_with($relative, 'storage/trash/') && $name !== '.gitkeep') {
         return true;
     }
@@ -100,11 +104,11 @@ function release_should_exclude(string $relative, bool $isDir): bool
         return true;
     }
 
-    if (str_starts_with($relative, 'public/uploads/large/') && $name !== '.gitkeep') {
+    if (str_starts_with($relative, 'public/uploads/large/') && !in_array($name, ['.gitkeep', '.htaccess'], true)) {
         return true;
     }
 
-    if (str_starts_with($relative, 'public/uploads/thumbnails/') && $name !== '.gitkeep') {
+    if (str_starts_with($relative, 'public/uploads/thumbnails/') && !in_array($name, ['.gitkeep', '.htaccess'], true)) {
         return true;
     }
 
@@ -135,12 +139,16 @@ function release_forbidden_reason(string $entry): ?string
         '#\.(log|bak|backup|tmp)$#i' => 'тимчасові/лог/backup-файли не можна додавати в ZIP',
         '#(^|/)storage/originals/.*\.(jpe?g|png|webp|avif)$#i' => 'оригінали фото не можна додавати в release ZIP',
         '#(^|/)public/uploads/(large|thumbnails|originals)/.*\.(jpe?g|png|webp|avif)$#i' => 'завантажені фото не можна додавати в release ZIP',
-        '#(^|/)storage/(logs|sessions|trash|download_locks)/.+#' => 'runtime-файли storage не можна додавати в ZIP',
+        '#(^|/)storage/(logs|sessions|trash|download_locks|share_ratelimit)/.+#' => 'runtime-файли storage не можна додавати в ZIP',
     ];
 
     foreach ($checks as $pattern => $reason) {
         if (preg_match($pattern, $withoutRoot)) {
-            if ($name === '.gitkeep' || ($withoutRoot === 'public/uploads/originals/.htaccess')) {
+            if ($name === '.gitkeep' || in_array($withoutRoot, [
+                'public/uploads/originals/.htaccess',
+                'public/uploads/large/.htaccess',
+                'public/uploads/thumbnails/.htaccess',
+            ], true)) {
                 continue;
             }
 
