@@ -46,6 +46,7 @@ $tagOptions = [];
 $tagsByPhoto = [];
 $totalPhotos = 0;
 $totalPages = 1;
+$includeOriginalName = $isSharedView;
 
 try {
     $options = fetch_filter_options(db());
@@ -54,12 +55,12 @@ try {
     $cameraOptions = $options['cameras'];
 
     // A shared view is allowed to include the private album that was explicitly shared.
-    $totalPhotos = count_photos(db(), $filters, false, $isSharedView);
+    $totalPhotos = count_photos(db(), $filters, $includeOriginalName, $isSharedView);
     $totalPages = max(1, (int) ceil($totalPhotos / $perPage));
     $page = min($page, $totalPages);
     $offset = ($page - 1) * $perPage;
 
-    $photos = fetch_photos(db(), $filters, $perPage, $offset, false, $isSharedView);
+    $photos = fetch_photos(db(), $filters, $perPage, $offset, $includeOriginalName, $isSharedView);
     $tagsByPhoto = get_photo_tags_map(array_column($photos, 'id'));
 } catch (Throwable $exception) {
     app_http_error('Не вдалося завантажити галерею. Перевірте підключення до бази даних.', 500, $exception);
@@ -112,7 +113,7 @@ if ($albumId !== null) {
     <form class="filter-panel-inner" method="get" action="<?= h(url('gallery.php')) ?>">
         <label>
             Пошук
-            <input type="search" name="q" value="<?= h($search) ?>" placeholder="Назва або опис">
+            <input type="search" name="q" value="<?= h($search) ?>" placeholder="Назва, опис або файл">
         </label>
         <label>
             Камера
@@ -202,7 +203,7 @@ if ($albumId !== null) {
                             width="600"
                             height="400"
                             loading="lazy"
-                            onerror="this.style.opacity=0"
+                            data-hide-on-error="true"
                         >
                     </picture>
                     <span><?= h($photo['title']) ?></span>

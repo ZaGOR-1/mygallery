@@ -13,11 +13,13 @@ storage/trash/*
 storage/logs/*
 storage/sessions/*
 storage/test_sessions/*
+storage/download_locks/*
 storage/share_ratelimit/*
 !storage/originals/.gitkeep
 !storage/trash/.gitkeep
 !storage/logs/.gitkeep
 !storage/sessions/.gitkeep
+!storage/download_locks/.gitkeep
 !storage/share_ratelimit/.gitkeep
 *.log
 *.zip

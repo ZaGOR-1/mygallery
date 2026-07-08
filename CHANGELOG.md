@@ -2,6 +2,8 @@
 
 ## v6.4.20
 
+- Audit follow-up: closed the current `FULL_PROJECT_AUDIT.md` Medium/Low/Info findings. Added stricter album-cover privacy fallback, one-time CSRF token cleanup for the legacy fallback path, safer album ZIP streaming when cache rename fails, clearer `tools/self_check.php` failure output, stronger GitHub Actions coverage for `beta`/DB/tests/release ZIP content, a repository `.gitattributes` line-ending policy, documentation consistency fixes, and a small helper extraction to `app/includes/gallery_functions.php`.
+- Audit follow-up: closed the later `FULL_PROJECT_AUDIT.md` High/Medium/Low/Info findings. Public gallery search no longer uses `photos.original_name` outside token-based share views, upload now initializes `updated_at` so optimistic locking works on first edit, production share links fail closed when rate-limit storage is unavailable, album ZIP generation is locked per cache key, and release ZIP builds exclude internal AI/agent/audit artifacts.
 - UI: removed the light theme entirely — the gallery is now dark-only. Deleted the `:root[data-theme="light"]` token block, the `html[data-theme="light"]` `color-scheme` rule and the `.theme-toggle` / `.theme-icon-*` styles from `public/assets/css/style.css`; removed the theme-toggle button and its SVG icons plus the inline `localStorage` theme-restore script from `app/includes/header.php`; and removed the toggle click handler from `public/assets/js/main.js`. The refined dark palette and modern component styling from v6.4.19 are kept as the single theme; no `data-theme` attribute is set anywhere anymore.
 
 ## v6.4.19

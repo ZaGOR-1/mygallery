@@ -36,6 +36,25 @@ function release_relative_path(string $root, string $path): string
     return trim($relative, '/');
 }
 
+function release_internal_artifact_reason(string $relative): ?string
+{
+    $relative = trim(str_replace('\\', '/', $relative), '/');
+
+    $checks = [
+        '#(^|/)\.(agents|codex|cursor|gemini|github)(/|$)#i' => 'внутрішні AI/dev-конфігурації не можна додавати в production release ZIP',
+        '#(^|/)(AGENTS|CLAUDE|GEMINI|audit|FULL_PROJECT_AUDIT|provirka)\.md$#i' => 'внутрішні agent/audit документи не можна додавати в production release ZIP',
+        '#(^|/)docs/(AI_[^/]+|AUDIT_[^/]+|SECURITY_AUDIT|UI_UX_RECOMMENDATIONS)\.md$#i' => 'внутрішні audit/security prompt документи не можна додавати в production release ZIP',
+    ];
+
+    foreach ($checks as $pattern => $reason) {
+        if (preg_match($pattern, $relative)) {
+            return $reason;
+        }
+    }
+
+    return null;
+}
+
 function release_should_exclude(string $relative, bool $isDir): bool
 {
     $relative = trim(str_replace('\\', '/', $relative), '/');
@@ -43,6 +62,10 @@ function release_should_exclude(string $relative, bool $isDir): bool
 
     if ($relative === '') {
         return false;
+    }
+
+    if (release_internal_artifact_reason($relative) !== null) {
+        return true;
     }
 
     $excludedDirs = [
@@ -59,7 +82,6 @@ function release_should_exclude(string $relative, bool $isDir): bool
         'scripts',
         'tests',
         'storage/test_sessions',
-        'storage/download_locks',
     ];
 
     foreach ($excludedDirs as $dir) {
@@ -96,6 +118,10 @@ function release_should_exclude(string $relative, bool $isDir): bool
         return true;
     }
 
+    if (str_starts_with($relative, 'storage/download_locks/') && $name !== '.gitkeep') {
+        return true;
+    }
+
     if (str_starts_with($relative, 'storage/trash/') && $name !== '.gitkeep') {
         return true;
     }
@@ -129,6 +155,11 @@ function release_forbidden_reason(string $entry): ?string
     $entry = trim(str_replace('\\', '/', $entry), '/');
     $withoutRoot = preg_replace('#^[^/]+/#', '', $entry) ?? $entry;
     $name = basename($withoutRoot);
+
+    $internalReason = release_internal_artifact_reason($withoutRoot);
+    if ($internalReason !== null) {
+        return $internalReason . ': ' . $withoutRoot;
+    }
 
     $checks = [
         '#(^|/)\.git(/|$)#' => '.git не можна додавати в release ZIP',

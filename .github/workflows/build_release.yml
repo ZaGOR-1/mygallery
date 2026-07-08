@@ -2,25 +2,120 @@ name: Build Release Test
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "beta" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "beta" ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: my_photo_gallery
+          MYSQL_USER: gallery_user
+          MYSQL_PASSWORD: gallery_password
+          MYSQL_ROOT_PASSWORD: root_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      APP_ENV: local
+      APP_DEBUG: "false"
+      APP_URL: http://mygallery
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: my_photo_gallery
+      DB_USER: gallery_user
+      DB_PASSWORD: gallery_password
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup PHP
-      uses: shivammathur/setup-php@v2
-      with:
-        php-version: '8.4'
-        extensions: mbstring, fileinfo, gd, pdo_mysql, exif
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, fileinfo, gd, pdo_mysql, exif, zip
 
-    - name: Run Build Release Script
-      run: php tools/build_release.php
-      
-    - name: Verify Release ZIP
-      run: ls -la dist/mygallery_*_release.zip
+      - name: Lint PHP files
+        run: find . -name '*.php' -not -path './dist/*' -print0 | xargs -0 -n1 php -l
+
+      - name: Check JavaScript syntax
+        run: node --check public/assets/js/main.js
+
+      - name: Prepare database config
+        run: cp config/database.example.php config/database.php
+
+      - name: Wait for MySQL
+        run: |
+          for i in {1..30}; do
+            php -r 'try { new PDO("mysql:host=127.0.0.1;port=3306;dbname=my_photo_gallery;charset=utf8mb4", "gallery_user", "gallery_password", [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]); exit(0); } catch (Throwable $e) { fwrite(STDERR, "."); exit(1); }' && exit 0
+            sleep 2
+          done
+          echo "MySQL did not become ready in time" >&2
+          exit 1
+
+      - name: Load schema and migrations
+        run: |
+          mysql -h127.0.0.1 -P3306 -ugallery_user -pgallery_password my_photo_gallery < database/schema.sql
+          php tools/migrate.php
+
+      - name: Run self-check
+        run: php tools/self_check.php
+
+      - name: Run tests
+        run: php tests/run.php
+
+      - name: Build release ZIP
+        run: php tools/build_release.php
+
+      - name: Verify release ZIP contents
+        run: |
+          php -r '
+          $zips = glob("dist/mygallery_*_release.zip") ?: [];
+          if (count($zips) !== 1) {
+              fwrite(STDERR, "Expected exactly one release ZIP, found " . count($zips) . PHP_EOL);
+              exit(1);
+          }
+          $zip = new ZipArchive();
+          if ($zip->open($zips[0]) !== true) {
+              fwrite(STDERR, "Could not open release ZIP" . PHP_EOL);
+              exit(1);
+          }
+          for ($i = 0; $i < $zip->numFiles; $i++) {
+              $name = str_replace("\\\\", "/", (string) $zip->getNameIndex($i));
+              $withoutRoot = preg_replace("#^[^/]+/#", "", trim($name, "/")) ?: trim($name, "/");
+              $base = basename($withoutRoot);
+              $allowedRuntimePlaceholders = $base === ".gitkeep" || in_array($withoutRoot, [
+                  "public/uploads/originals/.htaccess",
+                  "public/uploads/large/.htaccess",
+                  "public/uploads/thumbnails/.htaccess",
+              ], true);
+              $forbidden = [
+                  "#(^|/)\\.git(/|$)#",
+                  "#(^|/)config/database\\.php$#",
+                  "#(^|/)\\.env$#",
+                  "#(^|/)temp_[^/]*\\.php$#i",
+                  "#(^|/)sess_[^/]*$#",
+                  "#\\.(log|bak|backup|tmp|zip)$#i",
+                  "#(^|/)storage/originals/.+\\.(jpe?g|png|webp|avif)$#i",
+                  "#(^|/)public/uploads/(large|thumbnails|originals)/.+\\.(jpe?g|png|webp|avif)$#i",
+                  "#(^|/)storage/(logs|sessions|trash|download_locks|share_ratelimit)/.+#",
+              ];
+              foreach ($forbidden as $pattern) {
+                  if (preg_match($pattern, $withoutRoot) && !$allowedRuntimePlaceholders) {
+                      fwrite(STDERR, "Forbidden release entry: {$withoutRoot}" . PHP_EOL);
+                      exit(1);
+                  }
+              }
+          }
+          $zip->close();
+          echo "Release ZIP content verification passed" . PHP_EOL;
+          '

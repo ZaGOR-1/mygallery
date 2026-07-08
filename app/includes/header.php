@@ -8,6 +8,7 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'csrf.php';
 send_security_headers();
 
 $pageTitle = $pageTitle ?? app_name();
+$robotsMeta = $robotsMeta ?? '';
 $flashMessages = get_flash_messages();
 ?>
 <!doctype html>
@@ -16,6 +17,9 @@ $flashMessages = get_flash_messages();
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= h($pageTitle) ?></title>
+    <?php if ($robotsMeta !== ''): ?>
+        <meta name="robots" content="<?= h($robotsMeta) ?>">
+    <?php endif; ?>
     <link rel="stylesheet" href="<?= h(local_url('assets/css/style.css')) ?>">
     <link rel="icon" href="<?= h(local_url('assets/favicon.svg')) ?>" type="image/svg+xml">
 </head>

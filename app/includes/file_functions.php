@@ -24,11 +24,6 @@ function uploads_path(string $folder, string $filename = ''): string
     return $filename === '' ? $path : $path . DIRECTORY_SEPARATOR . $filename;
 }
 
-function uploads_url(string $folder, string $filename): string
-{
-    return url('uploads/' . $folder . '/' . rawurlencode($filename));
-}
-
 function photo_media_id(array $photo): int
 {
     if (array_key_exists('photo_id', $photo)) {

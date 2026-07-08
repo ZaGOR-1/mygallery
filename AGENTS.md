@@ -6,7 +6,7 @@
 
 ## Про проєкт
 
-**MyGallery v6.4.6** — персональна фотогалерея на чистому PHP без Laravel/Composer/React. Проєкт має залишатися простим, зрозумілим, переносимим і придатним для студентської роботи, але з нормальними production/security-практиками.
+**MyGallery** — персональна фотогалерея на чистому PHP без Laravel/Composer/React. Актуальну версію завжди перевіряй у файлі `VERSION`, а не в інструкціях для агентів. Проєкт має залишатися простим, зрозумілим, переносимим і придатним для студентської роботи, але з нормальними production/security-практиками.
 
 Основний функціонал уже реалізований:
 
@@ -157,6 +157,7 @@ mygallery/
 │       ├── db.php
 │       ├── file_functions.php
 │       ├── functions.php
+│       ├── gallery_functions.php
 │       ├── photo_service.php
 │       ├── header.php
 │       └── footer.php
@@ -212,6 +213,7 @@ mygallery/
 │   ├── trash/                     тимчасовий кошик і manifest-файли
 │   ├── logs/
 │   ├── share_ratelimit/           runtime-ліміти для public share token
+│   ├── download_locks/            runtime-ліміти для ZIP download
 │   └── sessions/
 ├── tools/
 │   ├── backfill_sha256.php
@@ -588,6 +590,7 @@ unzip -t dist/*.zip
 - завантажені JPEG/WebP/AVIF;
 - `storage/originals/*`;
 - `storage/share_ratelimit/*`, крім `.gitkeep`;
+- `storage/download_locks/*`, крім `.gitkeep`;
 - `public/uploads/large/*`;
 - `public/uploads/thumbnails/*`;
 - `*.log`;

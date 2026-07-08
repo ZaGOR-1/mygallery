@@ -53,12 +53,12 @@ try {
     $tagOptions = $options['tags'];
     $cameraOptions = $options['cameras'];
 
-    $totalPhotos = count_photos(db(), $filters, true);
+    $totalPhotos = count_photos(db(), $filters, true, true);
     $totalPages = max(1, (int) ceil($totalPhotos / $perPage));
     $page = min($page, $totalPages);
     $offset = ($page - 1) * $perPage;
 
-    $photos = fetch_photos(db(), $filters, $perPage, $offset, true);
+    $photos = fetch_photos(db(), $filters, $perPage, $offset, true, true);
     $tagsByPhoto = get_photo_tags_map(array_column($photos, 'id'));
 } catch (Throwable $exception) {
     app_http_error('Не вдалося завантажити список фотографій.', 500, $exception);
@@ -156,7 +156,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
                 Вибрати всі на сторінці
             </label>
             <button class="button" type="submit" name="bulk_action" value="edit">Масове редагування</button>
-            <button class="button danger" type="submit" name="bulk_action" value="delete" onclick="return confirm('Ви дійсно хочете перемістити вибрані фотографії в кошик?')">Масове видалення</button>
+            <button class="button danger" type="submit" name="bulk_action" value="delete" data-confirm="Ви дійсно хочете перемістити вибрані фотографії в кошик?">Масове видалення</button>
         </div>
         <div class="admin-list admin-photo-list">
         <?php foreach ($photos as $photo): ?>

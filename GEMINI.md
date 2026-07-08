@@ -109,7 +109,7 @@ Rules:
 
 - Do not edit application code during audit tasks.
 - During audit tasks, only create or update documentation files under `docs/`.
-- Check `git status --short` before any change. The uploaded v6.4.6 workspace may contain many uncommitted changes.
+- Check `git status --short` before any change. The workspace may contain many uncommitted changes.
 - Do not treat the current working tree as clean unless Git confirms it.
 - Never expose or copy real secrets from `config/database.php`, logs, sessions, backups or private media.
 - Be especially careful with `download_album.php`, `share.php`, `public/admin/share.php`, upload processing, trash recovery, restore, backup and release builder.

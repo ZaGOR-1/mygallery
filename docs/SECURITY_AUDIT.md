@@ -1,6 +1,6 @@
 # Security Audit
 
-Актуально для MyGallery v6.4.6 після виправлення medium issues з `FULL_PROJECT_AUDIT.md`.
+Historical security-аудит старішої версії. Поточний стан потрібно звіряти з `FULL_PROJECT_AUDIT.md`, `VERSION` і фактичними перевірками.
 
 ## 1. Executive Summary
 

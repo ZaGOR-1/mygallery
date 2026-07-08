@@ -57,6 +57,8 @@ try {
     $privateThumbFilename = bin2hex(random_bytes(16)) . '.jpg';
     $publicPhotoFilename = bin2hex(random_bytes(16)) . '.jpg';
     $publicThumbFilename = bin2hex(random_bytes(16)) . '.jpg';
+    $privateOriginalName = 'privateoriginal' . bin2hex(random_bytes(4)) . '.jpg';
+    $publicOriginalName = 'publicoriginal' . bin2hex(random_bytes(4)) . '.jpg';
     $privateCamera = 'Private Camera ' . bin2hex(random_bytes(4));
     $publicCamera = 'Public Camera ' . bin2hex(random_bytes(4));
 
@@ -64,9 +66,9 @@ try {
         'INSERT INTO photos (album_id, filename, thumbnail_filename, original_name, title, mime_type, file_size, camera_model)
         VALUES (?, ?, ?, ?, ?, "image/jpeg", 1, ?)'
     );
-    $stmt->execute([$privateAlbumId, $privatePhotoFilename, $privateThumbFilename, 'private.jpg', 'Private photo', $privateCamera]);
+    $stmt->execute([$privateAlbumId, $privatePhotoFilename, $privateThumbFilename, $privateOriginalName, 'Private photo', $privateCamera]);
     $privatePhotoId = (int) $db->lastInsertId();
-    $stmt->execute([$publicAlbumId, $publicPhotoFilename, $publicThumbFilename, 'public.jpg', 'Public photo', $publicCamera]);
+    $stmt->execute([$publicAlbumId, $publicPhotoFilename, $publicThumbFilename, $publicOriginalName, 'Public photo', $publicCamera]);
     $publicPhotoId = (int) $db->lastInsertId();
 
     $privateTag = 'Private Tag ' . bin2hex(random_bytes(4));
@@ -85,6 +87,32 @@ try {
     $publicTagNames = array_map(static fn (array $tag): string => (string) $tag['name'], $publicFilters['tags']);
     assert_false(in_array($privateTag, $publicTagNames, true), 'Public tag filters must not include private-only tags');
     assert_true(in_array($publicTag, $publicTagNames, true), 'Public tag filters must include public tags');
+
+    $publicFilenameFilters = normalize_gallery_filters(['q' => pathinfo($publicOriginalName, PATHINFO_FILENAME)]);
+    $publicFilenameResults = fetch_photos($db, $publicFilenameFilters, 12, 0, false, false);
+    assert_false(in_array($publicPhotoId, array_map(static fn (array $photo): int => (int) $photo['id'], $publicFilenameResults), true), 'Public gallery search must not find photos only by original filename');
+
+    $adminFilenameResults = fetch_photos($db, $publicFilenameFilters, 12, 0, true, true);
+    assert_true(in_array($publicPhotoId, array_map(static fn (array $photo): int => (int) $photo['id'], $adminFilenameResults), true), 'Admin/gallery search with original filename enabled must find public original filename');
+
+    $privateFilenameFilters = normalize_gallery_filters(['q' => pathinfo($privateOriginalName, PATHINFO_FILENAME)]);
+    $privateFilenameCount = count_photos($db, $privateFilenameFilters, true, false);
+    assert_equals(0, $privateFilenameCount, 'Public gallery search must not leak private original filename');
+
+    $stmt = $db->prepare('UPDATE albums SET cover_photo_id = ? WHERE id = ?');
+    $stmt->execute([$privatePhotoId, $publicAlbumId]);
+
+    $publicAlbumsWithCovers = get_public_albums_with_covers(false);
+    $publicAlbumCover = null;
+    foreach ($publicAlbumsWithCovers as $albumWithCover) {
+        if ((int) $albumWithCover['id'] === $publicAlbumId) {
+            $publicAlbumCover = $albumWithCover;
+            break;
+        }
+    }
+    assert_true(is_array($publicAlbumCover), 'Public album must be returned by get_public_albums_with_covers');
+    assert_equals($publicPhotoId, (int) ($publicAlbumCover['photo_id'] ?? 0), 'Public album cover must fall back to a photo from the same album when cover_photo_id points elsewhere');
+    assert_true(invalid_album_cover_count() > 0, 'Health/self-check invariant must still detect cross-album cover_photo_id values');
 
     // Rollback to clean up database
     $db->rollBack();

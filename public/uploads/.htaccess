@@ -7,7 +7,7 @@ RemoveType .php .php3 .php4 .php5 .php7 .php8 .phtml .phar
 </FilesMatch>
 
 <IfModule mod_headers.c>
-    <FilesMatch "\.(jpg|jpeg)$">
+    <FilesMatch "\.(jpg|jpeg|webp|avif)$">
         Header set Cache-Control "public, max-age=2592000"
     </FilesMatch>
 </IfModule>

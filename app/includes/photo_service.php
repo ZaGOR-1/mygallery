@@ -44,7 +44,6 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
     $thumbnailPath = null;
 
     try {
-        ini_set('memory_limit', '512M');
         $filename = random_photo_name();
         $thumbnailFilename = random_photo_name();
         $originalPath = originals_path($filename);
@@ -95,9 +94,9 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
 
         $stmt = $pdo->prepare(
             'INSERT INTO photos
-            (album_id, filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json, original_sha256, dominant_color)
+            (album_id, filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json, original_sha256, dominant_color, updated_at)
             VALUES
-            (:album_id, :filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json, :original_sha256, :dominant_color)'
+            (:album_id, :filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json, :original_sha256, :dominant_color, CURRENT_TIMESTAMP)'
         );
 
         $stmt->execute([
@@ -178,7 +177,7 @@ function update_photo_metadata(PDO $pdo, int $photoId, array $input): void
     try {
         $pdo->beginTransaction();
         
-        $stmt = $pdo->prepare('SELECT album_id, updated_at FROM photos WHERE id = ? FOR UPDATE');
+        $stmt = $pdo->prepare('SELECT album_id, COALESCE(updated_at, created_at) AS lock_version FROM photos WHERE id = ? FOR UPDATE');
         $stmt->execute([$photoId]);
         $photoData = $stmt->fetch(PDO::FETCH_ASSOC);
         
@@ -186,7 +185,7 @@ function update_photo_metadata(PDO $pdo, int $photoId, array $input): void
             throw new InvalidArgumentException('Фотографію не знайдено.');
         }
 
-        if (isset($input['updated_at']) && $input['updated_at'] !== '' && (string) $input['updated_at'] !== (string) $photoData['updated_at']) {
+        if (!isset($input['updated_at']) || $input['updated_at'] === '' || (string) $input['updated_at'] !== (string) $photoData['lock_version']) {
             throw new InvalidArgumentException('Фотографію було змінено іншим адміністратором. Будь ласка, оновіть сторінку і спробуйте знову.');
         }
         
@@ -506,4 +505,3 @@ function reorder_album(PDO $pdo, int $albumId, string $direction): void
         throw $exception;
     }
 }
-

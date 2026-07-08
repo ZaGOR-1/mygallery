@@ -16,9 +16,11 @@ assert_true(str_contains($restoreScript, "str_starts_with(\$normalized, '/')"), 
 $healthScript = file_get_contents(dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'admin' . DIRECTORY_SEPARATOR . 'health.php');
 assert_true(str_contains($healthScript, "'share_links'"), 'health.php must include share_links table in DB check');
 assert_true(str_contains($healthScript, "'schema_migrations'"), 'health.php must include schema_migrations table in DB check');
+assert_true(str_contains($healthScript, 'Album cover consistency'), 'health.php must report album cover consistency');
 
 $selfCheckScript = file_get_contents(dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'self_check.php');
 assert_true(str_contains($selfCheckScript, "'schema_migrations'"), 'self_check.php must include schema_migrations table in DB check');
+assert_true(str_contains($selfCheckScript, 'invalid_album_cover_count'), 'self_check.php must check album cover consistency');
 
 $verifyScript = file_get_contents(dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'verify_backup.php');
 assert_true(str_contains($verifyScript, '$hasMismatch = true'), 'verify_backup.php must fail on manifest/media count mismatches');

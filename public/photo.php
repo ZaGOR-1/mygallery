@@ -184,7 +184,7 @@ require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . '
                         width="<?= h((string) (int) $photo['width']) ?>"
                         height="<?= h((string) (int) $photo['height']) ?>"
                     <?php endif; ?>
-                    onerror="this.style.opacity=0"
+                    data-hide-on-error="true"
                 >
             </picture>
         </a>

@@ -14,7 +14,7 @@ function media_not_found(): never
 
 function media_share_token_allows_photo(string $token, array $photo): bool
 {
-    if (preg_match('/\A[a-f0-9]{32}\z/', $token) !== 1) {
+    if (!valid_share_token($token)) {
         return false;
     }
 

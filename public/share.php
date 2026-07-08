@@ -4,7 +4,17 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../app/includes/functions.php';
 
-$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+function send_share_noindex_headers(): void
+{
+    if (!headers_sent()) {
+        header('X-Robots-Tag: noindex, noarchive', true);
+    }
+}
+
+send_share_noindex_headers();
+$robotsMeta = 'noindex, noarchive';
+
+$ip = client_ip();
 $rateLimitDir = storage_path('share_ratelimit');
 if (!is_dir($rateLimitDir)) {
     @mkdir($rateLimitDir, 0755, true);
@@ -15,7 +25,23 @@ $rateLimitFile = $rateLimitDir . DIRECTORY_SEPARATOR . 'limit_' . md5($ip) . '.j
 // запити губили б інкременти й лічильник занижувався б. Форма масиву валідується після
 // json_decode: битий/неочікуваний JSON не має давати null-deref під strict_types.
 $rateLimited = false;
-$handle = fopen($rateLimitFile, 'c+');
+$rateLimitReady = is_dir($rateLimitDir) && is_writable($rateLimitDir);
+
+if (!$rateLimitReady) {
+    app_log('Share rate limit storage is not writable: ' . $rateLimitDir);
+    if (is_production()) {
+        app_http_error('Служба приватних посилань тимчасово недоступна. Спробуйте пізніше.', 503);
+    }
+}
+
+$handle = $rateLimitReady ? @fopen($rateLimitFile, 'c+') : false;
+if ($handle === false && $rateLimitReady) {
+    app_log('Share rate limit file could not be opened: ' . $rateLimitFile);
+    if (is_production()) {
+        app_http_error('Служба приватних посилань тимчасово недоступна. Спробуйте пізніше.', 503);
+    }
+}
+
 if ($handle !== false) {
     try {
         if (flock($handle, LOCK_EX)) {
@@ -61,7 +87,7 @@ if ($rateLimited) {
 
 $token = (string) ($_GET['token'] ?? '');
 
-if ($token === '') {
+if (!valid_share_token($token)) {
     $errorStatusCode = 404;
     $errorTitle = 'Посилання не знайдено';
     $errorMessage = 'Такого приватного посилання не існує або його було відкликано.';
@@ -90,6 +116,8 @@ if (!empty($share['expires_at']) && strtotime($share['expires_at']) < time()) {
 }
 
 function render_shared_photo(array $photo, string $token, ?int $albumId = null) {
+    global $robotsMeta;
+
     $pageTitle = $photo['title'];
     $exifRows = normalized_exif_for_display($photo['exif_json'], $photo);
     $photoImageUrl = photo_display_url($photo, $token);
@@ -128,7 +156,7 @@ function render_shared_photo(array $photo, string $token, ?int $albumId = null) 
                         <?php endif; ?>
                         alt="<?= h($photo['title']) ?>"
                         class="shared-photo-image"
-                        onerror="this.style.opacity=0"
+                        data-hide-on-error="true"
                     >
                 </picture>
             </a>

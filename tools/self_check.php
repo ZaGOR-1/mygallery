@@ -198,6 +198,8 @@ function check_required_directories(): void
         trash_path(),
         storage_path('logs'),
         storage_path('sessions'),
+        storage_path('share_ratelimit'),
+        storage_path('download_locks'),
         project_root_path('tools'),
         project_root_path('tools' . DIRECTORY_SEPARATOR . 'lib'),
     ];
@@ -214,6 +216,8 @@ function check_writable_directories(): void
         trash_path(),
         storage_path('logs'),
         storage_path('sessions'),
+        storage_path('share_ratelimit'),
+        storage_path('download_locks'),
         uploads_path('large'),
         uploads_path('thumbnails'),
     ];
@@ -254,6 +258,8 @@ function check_gitkeep_files(): void
         trash_path('.gitkeep'),
         storage_path('logs' . DIRECTORY_SEPARATOR . '.gitkeep'),
         storage_path('sessions' . DIRECTORY_SEPARATOR . '.gitkeep'),
+        storage_path('share_ratelimit' . DIRECTORY_SEPARATOR . '.gitkeep'),
+        storage_path('download_locks' . DIRECTORY_SEPARATOR . '.gitkeep'),
         uploads_path('large', '.gitkeep'),
         uploads_path('thumbnails', '.gitkeep'),
         uploads_path('originals', '.gitkeep'),
@@ -314,19 +320,31 @@ function check_database_schema(): void
     }
 
     assert_true(isset($foundLoginIndexes['idx_login_attempts_username_ip']), 'Missing index idx_login_attempts_username_ip on login_attempts');
+
+    assert_true(invalid_album_cover_count() === 0, 'Some album cover_photo_id values point to photos from another album.');
 }
 
-check_php_version();
-check_required_extensions();
-check_config_files();
-check_required_directories();
-check_required_tool_files();
-check_writable_directories();
-check_upload_protection_files();
-check_gitkeep_files();
-check_database_schema();
-check_csrf_cases();
-check_orientation_cases();
-check_ini_settings();
+function run_self_check(): void
+{
+    check_php_version();
+    check_required_extensions();
+    check_config_files();
+    check_required_directories();
+    check_required_tool_files();
+    check_writable_directories();
+    check_upload_protection_files();
+    check_gitkeep_files();
+    check_database_schema();
+    check_csrf_cases();
+    check_orientation_cases();
+    check_ini_settings();
+}
 
-echo "Self-check passed.\n";
+try {
+    run_self_check();
+    echo "Self-check passed.\n";
+} catch (Throwable $exception) {
+    app_log_exception($exception, 'Self-check failed');
+    fwrite(STDERR, "Self-check failed: " . $exception->getMessage() . "\n");
+    exit(1);
+}

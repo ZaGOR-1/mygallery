@@ -12,7 +12,7 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 
 - головна сторінка й адаптивна галерея;
 - пагінація по 12 фотографій;
-- пошук за назвою, описом і назвою файла;
+- публічний пошук за назвою й описом; адмінка та token-based share view можуть шукати також за оригінальною назвою файла;
 - FULLTEXT-пошук із fallback на `LIKE`, якщо індекси ще не застосовані;
 - фільтри за альбомом, тегом, камерою та датою зйомки;
 - теги для фотографій з many-to-many зв’язком;
@@ -74,14 +74,14 @@ tools/recover_trash.php               відновлення або очищен
 VERSION                               поточна версія проєкту
 tools/lib/SimpleZipWriter.php         pure-PHP ZIP writer для release/backup
 README.md                             основна інструкція запуску
-AGENTS.md                             правила для AI/Codex-агента
+AGENTS.md                             repo-only правила для AI/Codex-агента
 docs/IMPLEMENTED_FEATURES.md          що вже реалізовано
 CHANGELOG.md                          історія змін версій
 docs/BUGS.md                          відомі обмеження і потенційні баги
 ROADMAP.md                            майбутні задачі, не список уже реалізованого
-docs/AUDIT_REPORT.md                  короткий підсумок останнього аудиту
-docs/SECURITY_AUDIT.md                детальний технічний аудит
-docs/AUDIT_PROMPT.md                  промпт для повторного аудиту AI-агентом
+docs/AUDIT_REPORT.md                  repo-only короткий підсумок останнього аудиту
+docs/SECURITY_AUDIT.md                repo-only детальний технічний аудит
+docs/AUDIT_PROMPT.md                  repo-only промпт для повторного аудиту AI-агентом
 docs/BACKUP_RESTORE.md                порядок backup і restore
 ```
 
@@ -104,7 +104,7 @@ php tools/migrate_legacy_originals.php --apply
 
 ## Користування
 
-- `gallery.php` підтримує GET-фільтри: пошук, альбом, тег, камера, дата зйомки і сортування.
+- `gallery.php` підтримує GET-фільтри: пошук, альбом, тег, камера, дата зйомки і сортування. Звичайна публічна галерея не шукає за оригінальними назвами файлів; це доступно в адмінці та у token-based share view.
 - Альбоми створюються в `admin/albums.php` або прямо під час завантаження/редагування фото.
 - Теги вводяться через кому під час завантаження або редагування фото. Один тег можна використовувати для багатьох фото.
 - Картки в галереї відкривають сторінку окремої фотографії, щоб EXIF і навігація залишалися доступними без JavaScript.
@@ -259,10 +259,10 @@ php tools/setup.php
 
 ```bash
 sudo chown -R root:www-data /var/www/mygallery
-sudo chown -R www-data:www-data /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/storage/sessions /var/www/mygallery/storage/share_ratelimit /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
+sudo chown -R www-data:www-data /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/storage/sessions /var/www/mygallery/storage/share_ratelimit /var/www/mygallery/storage/download_locks /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
 sudo find /var/www/mygallery -type d -exec chmod 750 {} \;
 sudo find /var/www/mygallery -type f -exec chmod 640 {} \;
-sudo chmod 750 /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/storage/sessions /var/www/mygallery/storage/share_ratelimit /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
+sudo chmod 750 /var/www/mygallery/storage/originals /var/www/mygallery/storage/trash /var/www/mygallery/storage/logs /var/www/mygallery/storage/sessions /var/www/mygallery/storage/share_ratelimit /var/www/mygallery/storage/download_locks /var/www/mygallery/public/uploads/large /var/www/mygallery/public/uploads/thumbnails
 ```
 
 Не використовуйте `chmod 777`.
@@ -461,7 +461,7 @@ php tools/regenerate_images.php --all --dry-run
 php tools/build_release.php
 ```
 
-На виході буде `dist/mygallery_<VERSION>_release.zip`, наприклад `dist/mygallery_6.4.20_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/share-rate-limit/backup-файли або реальні фото з upload/storage.
+На виході буде `dist/mygallery_<VERSION>_release.zip`, наприклад `dist/mygallery_6.4.20_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/share-rate-limit/backup-файли або реальні фото з upload/storage. Production release також не включає внутрішні AI/agent/audit артефакти на кшталт `.agents/`, `.gemini/`, `.github/`, `AGENTS.md`, `audit.md`, `FULL_PROJECT_AUDIT.md`, `provirka.md` і AI/audit docs.
 
 Приватний backup:
 
@@ -534,16 +534,24 @@ DB_PASSWORD=strong_password
 
 У production застосунок спеціально не стартує, якщо `APP_DEBUG=true`, `APP_URL` не `https://`, або БД налаштована на `root` без пароля.
 
+## Локальні CLI-перевірки
+
+Якщо WampServer показує попередження на кшталт `Xdebug: File 'c:/wamp64/logs/xdebug.log' could not be opened`, це проблема локальної конфігурації Xdebug, а не MyGallery. Для чистого виводу перевірок можна або виправити шлях `xdebug.log` у php.ini, або запускати службові команди з вимкненим Xdebug:
+
+```bash
+php -d xdebug.mode=off tools/self_check.php
+php -d xdebug.mode=off tests/run.php
+```
+
 ## Документація
+
+Production release ZIP навмисно не включає repo-only audit/AI/agent документи. Вони лишаються в робочому репозиторії для розробки й повторних аудитів.
 
 - `docs/IMPLEMENTED_FEATURES.md` — що вже реалізовано і не треба повторно планувати в roadmap.
 - `ROADMAP.md` — майбутні задачі, розбиті за пріоритетами.
 - `docs/BUGS.md` — відомі обмеження і потенційні баги.
-- `docs/AUDIT_REPORT.md` — короткий підсумок останнього аудиту.
-- `docs/SECURITY_AUDIT.md` — детальний технічний аудит.
-- `docs/AUDIT_PROMPT.md` — готовий промпт для повторного аудиту AI-агентом.
 - `docs/BACKUP_RESTORE.md` — порядок backup і restore.
-- `AGENTS.md` — правила для AI/Codex-агента, який буде змінювати проєкт.
+- Repo-only: `docs/AUDIT_REPORT.md`, `docs/SECURITY_AUDIT.md`, `docs/AUDIT_PROMPT.md`, `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `audit.md`, `FULL_PROJECT_AUDIT.md`, `provirka.md`.
 
 ## Після встановлення
 

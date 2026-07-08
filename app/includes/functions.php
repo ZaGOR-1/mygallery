@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/auth_functions.php';
 require_once __DIR__ . '/file_functions.php';
+require_once __DIR__ . '/gallery_functions.php';
 
 function project_root_path(string $path = ''): string
 {
@@ -240,6 +241,30 @@ function request_from_trusted_proxy(): bool
         && in_array($remoteAddr, $trustedProxies, true);
 }
 
+function client_ip(?array $server = null, ?array $trustedProxies = null, string $default = 'unknown'): string
+{
+    $server ??= $_SERVER;
+    $remoteAddr = $server['REMOTE_ADDR'] ?? $default;
+    $remoteAddr = is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : $default;
+
+    if ($trustedProxies === null) {
+        $trustedProxies = app_config()['TRUSTED_PROXIES'] ?? [];
+    }
+
+    if (is_array($trustedProxies) && in_array($remoteAddr, $trustedProxies, true)) {
+        $forwardedFor = (string) ($server['HTTP_X_FORWARDED_FOR'] ?? '');
+        $candidates = array_map('trim', explode(',', $forwardedFor));
+
+        foreach ($candidates as $candidate) {
+            if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+                return $candidate;
+            }
+        }
+    }
+
+    return $remoteAddr;
+}
+
 function forwarded_proto_is_https(): bool
 {
     $forwardedProto = (string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '');
@@ -256,80 +281,6 @@ function trusted_forwarded_https_request(): bool
 function is_https_request(): bool
 {
     return direct_https_request() || trusted_forwarded_https_request();
-}
-
-function fulltext_index_exists(string $indexName): bool
-{
-    static $cache = [];
-
-    if (array_key_exists($indexName, $cache)) {
-        return $cache[$indexName];
-    }
-
-    try {
-        $stmt = db()->prepare(
-            "SELECT COUNT(*)
-            FROM information_schema.STATISTICS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'photos'
-              AND INDEX_NAME = :index_name
-              AND INDEX_TYPE = 'FULLTEXT'"
-        );
-        $stmt->execute(['index_name' => $indexName]);
-        $cache[$indexName] = (int) $stmt->fetchColumn() > 0;
-    } catch (Throwable $exception) {
-        app_log_exception($exception, 'Fulltext index check failed');
-        $cache[$indexName] = false;
-    }
-
-    return $cache[$indexName];
-}
-
-function fulltext_boolean_query(string $search): string
-{
-    // MySQL boolean FULLTEXT treats characters like `-`, `+`, `~`, `*`, `(`, `)`
-    // as operators. Extract only plain word tokens and add our own safe `+term*`
-    // syntax to avoid accidental negative terms or syntax errors from user input.
-    preg_match_all('/[\p{L}\p{N}_]+/u', $search, $matches);
-    $terms = array_slice(array_values(array_unique(array_filter(
-        $matches[0] ?? [],
-        static fn (string $term): bool => mb_strlen($term, 'UTF-8') >= 2
-    ))), 0, 8);
-
-    if (empty($terms)) {
-        return '';
-    }
-
-    return implode(' ', array_map(static fn (string $term): string => '+' . $term . '*', $terms));
-}
-
-function photo_search_condition(string $search, bool $includeOriginalName, array &$params): string
-{
-    if ($search === '') {
-        return '';
-    }
-
-    $fulltextIndex = $includeOriginalName ? 'idx_photos_admin_search_fulltext' : 'idx_photos_public_search_fulltext';
-    $fulltextQuery = fulltext_boolean_query($search);
-
-    if ($fulltextQuery !== '' && fulltext_index_exists($fulltextIndex)) {
-        $params['search_fulltext'] = $fulltextQuery;
-
-        return $includeOriginalName
-            ? 'MATCH(photos.title, photos.description, photos.original_name) AGAINST (:search_fulltext IN BOOLEAN MODE)'
-            : 'MATCH(photos.title, photos.description) AGAINST (:search_fulltext IN BOOLEAN MODE)';
-    }
-
-    $params['search_title'] = '%' . $search . '%';
-    $params['search_description'] = '%' . $search . '%';
-
-    if ($includeOriginalName) {
-        $params['search_original'] = '%' . $search . '%';
-
-        return '(photos.title LIKE :search_title OR photos.description LIKE :search_description OR photos.original_name LIKE :search_original)';
-    }
-
-    return '(photos.title LIKE :search_title OR photos.description LIKE :search_description)';
 }
 
 function set_flash(string $type, string $message): void
@@ -528,16 +479,22 @@ function get_public_albums_with_covers(bool $includePrivate = false): array
             COUNT(p2.id) AS photo_count,
             MAX(p2.created_at) AS last_photo_at
         FROM albums a
-        LEFT JOIN photos p ON p.id = CASE
-            WHEN a.cover_photo_id IS NOT NULL THEN a.cover_photo_id
-            ELSE (
+        LEFT JOIN photos p ON p.id = COALESCE(
+            (
+                SELECT p_cover.id
+                FROM photos p_cover
+                WHERE p_cover.id = a.cover_photo_id
+                  AND p_cover.album_id = a.id
+                LIMIT 1
+            ),
+            (
                 SELECT p3.id
                 FROM photos p3
                 WHERE p3.album_id = a.id
                 ORDER BY p3.created_at DESC, p3.id DESC
                 LIMIT 1
             )
-        END
+        )
         LEFT JOIN photos p2 ON p2.album_id = a.id
         $where
         GROUP BY a.id, a.name, a.cover_photo_id, a.sort_order, a.is_private, p.id, p.filename, p.thumbnail_filename, p.width, p.title, p.dominant_color
@@ -545,6 +502,19 @@ function get_public_albums_with_covers(bool $includePrivate = false): array
     );
 
     return $stmt->fetchAll();
+}
+
+function invalid_album_cover_count(): int
+{
+    $stmt = db()->query(
+        'SELECT COUNT(*)
+        FROM albums
+        INNER JOIN photos ON photos.id = albums.cover_photo_id
+        WHERE albums.cover_photo_id IS NOT NULL
+          AND (photos.album_id IS NULL OR photos.album_id <> albums.id)'
+    );
+
+    return (int) $stmt->fetchColumn();
 }
 
 function album_exists(int $id): bool
@@ -874,10 +844,9 @@ function build_gallery_where_clause(array $filters, array &$params, bool $includ
         $params['date_to'] = $filters['date_to'] . ' 23:59:59';
     }
 
-    // Exclude private albums unless this is an admin view ($includeOriginalName) or an
-    // authorized shared view ($includePrivate). The privacy decision is passed explicitly
-    // by the caller — never read from a global — so no future call can silently widen it.
-    if (!$includeOriginalName && !$includePrivate) {
+    // Exclude private albums unless the caller explicitly requests a wider admin/share view.
+    // The privacy decision is passed as an argument, never read from global state.
+    if (!$includePrivate) {
         $where[] = '(albums.is_private IS NULL OR albums.is_private = 0)';
     }
 

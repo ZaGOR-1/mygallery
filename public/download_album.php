@@ -11,7 +11,7 @@ if (!class_exists('ZipArchive')) {
 
 function album_download_client_ip(): string
 {
-    return (string) ($_SERVER['REMOTE_ADDR'] ?? 'cli');
+    return client_ip(default: 'cli');
 }
 
 function album_download_lock_key(int $albumId, string $token): string
@@ -87,6 +87,68 @@ function enforce_album_download_cooldown(int $albumId, string $token): void
     }
 }
 
+function album_zip_generation_lock_path(string $cacheKey): string
+{
+    return storage_path('download_locks') . DIRECTORY_SEPARATOR . 'zip_' . hash('sha256', $cacheKey) . '.lock';
+}
+
+function acquire_album_zip_generation_lock(string $cacheKey)
+{
+    $dir = storage_path('download_locks');
+    if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
+        app_http_error('Не вдалося створити папку для ZIP lock.', 500);
+    }
+
+    if (!is_writable($dir)) {
+        app_http_error('Папка ZIP lock недоступна для запису.', 500);
+    }
+
+    $handle = fopen(album_zip_generation_lock_path($cacheKey), 'c+');
+    if ($handle === false) {
+        app_http_error('Не вдалося створити ZIP lock.', 500);
+    }
+
+    if (!flock($handle, LOCK_EX)) {
+        fclose($handle);
+        app_http_error('Не вдалося заблокувати генерацію ZIP.', 500);
+    }
+
+    return $handle;
+}
+
+function release_album_zip_generation_lock(mixed $handle): void
+{
+    if (is_resource($handle)) {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+}
+
+function stream_album_zip_file(string $path, string $archiveName, bool $deleteAfterStream = false): never
+{
+    $downloadSize = filesize($path);
+    if ($downloadSize === false) {
+        if ($deleteAfterStream) {
+            unlink_file_with_log($path, 'Album ZIP temp cleanup');
+        }
+
+        app_http_error('Не вдалося прочитати ZIP-архів.', 500);
+    }
+
+    header('Content-Type: application/zip');
+    header('Content-Disposition: attachment; filename="' . rawurlencode($archiveName) . '.zip"');
+    header('Content-Length: ' . $downloadSize);
+    header('Pragma: public');
+    header('Cache-Control: max-age=3600');
+    header('Expires: ' . gmdate('D, d M Y H:i:s \G\M\T', time() + 3600));
+
+    readfile($path);
+    if ($deleteAfterStream) {
+        unlink_file_with_log($path, 'Album ZIP temp cleanup');
+    }
+    exit;
+}
+
 $albumId = null;
 $albumName = '';
 
@@ -94,6 +156,10 @@ $token = (string) ($_GET['token'] ?? '');
 $albumIdParam = $_GET['album_id'] ?? null;
 
 if ($token !== '') {
+    if (!valid_share_token($token)) {
+        app_http_error('Посилання не знайдено.', 404);
+    }
+
     // Shared view download
     $stmt = db()->prepare('SELECT * FROM share_links WHERE token = ?');
     $stmt->execute([$token]);
@@ -157,7 +223,7 @@ enforce_album_download_cooldown($albumId, $token);
 
 // Fetch photos in album
 $stmt = db()->prepare('
-    SELECT photos.filename, photos.original_name
+    SELECT photos.id, photos.filename, photos.original_name, photos.original_sha256, photos.file_size, photos.created_at, photos.updated_at
     FROM photos
     WHERE photos.album_id = ?
     ORDER BY photos.created_at ASC, photos.id ASC
@@ -174,19 +240,15 @@ if (count($photos) > 200) {
     app_http_error('Альбом занадто великий для завантаження архівом (максимум 200 фотографій).', 400);
 }
 
-// Get the latest updated_at to form cache key
-$stmtMax = db()->prepare('SELECT MAX(updated_at) as m_up, MAX(created_at) as m_cr FROM photos WHERE album_id = ?');
-$stmtMax->execute([$albumId]);
-$maxDates = $stmtMax->fetch();
-$lastUpdate = max($maxDates['m_up'] ?: '0', $maxDates['m_cr'] ?: '0');
-
 // Only admins receive byte-for-byte private originals from storage/originals.
 // Public (?album_id=) and share-token downloads get the optimized uploads/large copy only.
 // The flag is part of the cache key so an admin ZIP (originals) is never served to a non-admin.
 $canDownloadOriginals = is_admin_logged_in();
 $variant = $canDownloadOriginals ? 'orig' : 'opt';
+$cacheScope = $token !== '' ? 'share:' . hash('sha256', $token) : ($canDownloadOriginals ? 'admin' : 'public');
+$cacheFingerprint = album_zip_cache_fingerprint($albumId, $albumName, $variant, $cacheScope, $photos);
 
-$cacheKey = 'album_' . $albumId . '_' . $variant . '_' . md5($lastUpdate . $albumName . count($photos)) . '.zip';
+$cacheKey = 'album_' . $albumId . '_' . $variant . '_' . substr($cacheFingerprint, 0, 32) . '.zip';
 $cacheFile = $zipCacheDir . DIRECTORY_SEPARATOR . $cacheKey;
 
 // Helper to construct Ukrainian/Cyrillic safe zip file name
@@ -200,14 +262,7 @@ function safe_zip_filename(string $albumName): string
 $archiveName = safe_zip_filename($albumName);
 
 if (is_file($cacheFile)) {
-    header('Content-Type: application/zip');
-    header('Content-Disposition: attachment; filename="' . rawurlencode($archiveName) . '.zip"');
-    header('Content-Length: ' . filesize($cacheFile));
-    header('Pragma: public');
-    header('Cache-Control: max-age=3600');
-    header('Expires: ' . gmdate('D, d M Y H:i:s \G\M\T', time() + 3600));
-    readfile($cacheFile);
-    exit;
+    stream_album_zip_file($cacheFile, $archiveName);
 }
 
 $totalSize = 0;
@@ -238,16 +293,25 @@ if ($totalSize > 500 * 1024 * 1024) { // 500 MB
     app_http_error('Альбом занадто великий для завантаження архівом (максимум 500 МБ).', 400);
 }
 
+$generationLock = acquire_album_zip_generation_lock($cacheKey);
+
+if (is_file($cacheFile)) {
+    release_album_zip_generation_lock($generationLock);
+    stream_album_zip_file($cacheFile, $archiveName);
+}
+
 // Create ZIP archive
 $zip = new ZipArchive();
 $tempZipFile = tempnam(trash_path(), 'album_zip_');
 
 if ($tempZipFile === false) {
+    release_album_zip_generation_lock($generationLock);
     app_http_error('Не вдалося створити тимчасовий файл.', 500);
 }
 
 if ($zip->open($tempZipFile, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
     @unlink($tempZipFile);
+    release_album_zip_generation_lock($generationLock);
     app_http_error('Не вдалося відкрити ZIP-архів.', 500);
 }
 
@@ -272,11 +336,18 @@ $zip->close();
 
 if (!is_file($tempZipFile) || filesize($tempZipFile) === 0) {
     @unlink($tempZipFile);
+    release_album_zip_generation_lock($generationLock);
     app_http_error('Не вдалося створити ZIP-архів.', 500);
 }
 
-// Save to cache
-@rename($tempZipFile, $cacheFile);
+// Save to cache when possible; if the cache write fails, stream the verified temp file.
+$downloadFile = $cacheFile;
+$deleteDownloadFileAfterStream = false;
+if (!@rename($tempZipFile, $cacheFile)) {
+    app_log('Album ZIP cache rename failed: ' . basename($tempZipFile) . ' -> ' . basename($cacheFile));
+    $downloadFile = $tempZipFile;
+    $deleteDownloadFileAfterStream = true;
+}
 
 // Cleanup old cache files (randomly)
 if (random_int(1, 20) === 1) {
@@ -288,12 +359,5 @@ if (random_int(1, 20) === 1) {
 }
 
 // Stream the file
-header('Content-Type: application/zip');
-header('Content-Disposition: attachment; filename="' . rawurlencode($archiveName) . '.zip"');
-header('Content-Length: ' . filesize($cacheFile));
-header('Pragma: public');
-header('Cache-Control: max-age=3600');
-header('Expires: ' . gmdate('D, d M Y H:i:s \G\M\T', time() + 3600));
-
-readfile($cacheFile);
-exit;
+release_album_zip_generation_lock($generationLock);
+stream_album_zip_file($downloadFile, $archiveName, $deleteDownloadFileAfterStream);

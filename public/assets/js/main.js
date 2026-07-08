@@ -9,14 +9,25 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    document.querySelectorAll('form[data-confirm]').forEach(function (form) {
+    document.querySelectorAll('form').forEach(function (form) {
         form.addEventListener('submit', function (event) {
-            var message = form.getAttribute('data-confirm') || 'Підтвердити дію?';
+            var submitter = event.submitter || null;
+            var message = form.getAttribute('data-confirm') || (submitter ? submitter.getAttribute('data-confirm') : '') || '';
+
+            if (message === '') {
+                return;
+            }
 
             if (!window.confirm(message)) {
                 event.preventDefault();
             }
         });
+    });
+
+    document.querySelectorAll('img[data-hide-on-error]').forEach(function (img) {
+        img.addEventListener('error', function () {
+            img.style.opacity = '0';
+        }, { once: true });
     });
 
     // Dominant Color Placeholder
@@ -222,6 +233,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var lightboxDragPanStartX = 0;
     var lightboxDragPanStartY = 0;
     var currentLightboxIndex = -1;
+    var previousLightboxFocus = null;
 
     lightboxToolbar.appendChild(lightboxZoomOut);
     lightboxToolbar.appendChild(lightboxZoomReset);
@@ -330,6 +342,12 @@ document.addEventListener('DOMContentLoaded', function () {
         lightboxPanY = 0;
         stopLightboxDrag();
         document.body.classList.remove('lightbox-open');
+
+        if (previousLightboxFocus && typeof previousLightboxFocus.focus === 'function') {
+            previousLightboxFocus.focus();
+        }
+
+        previousLightboxFocus = null;
     }
 
     function updateLightboxNavButtons() {
@@ -359,7 +377,41 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    function getLightboxFocusableElements() {
+        return Array.prototype.slice.call(lightbox.querySelectorAll('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter(function (element) {
+            return !element.disabled && element.getClientRects().length > 0;
+        });
+    }
+
+    function trapLightboxFocus(event) {
+        var focusable = getLightboxFocusableElements();
+
+        if (focusable.length === 0) {
+            event.preventDefault();
+            lightboxClose.focus();
+            return;
+        }
+
+        var first = focusable[0];
+        var last = focusable[focusable.length - 1];
+        var active = document.activeElement;
+
+        if (event.shiftKey && (active === first || !lightbox.contains(active))) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && active === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    }
+
     function openLightbox(src, title, srcWebp, srcAvif) {
+        var wasHidden = lightbox.hidden;
+
+        if (wasHidden && document.activeElement && document.activeElement instanceof HTMLElement) {
+            previousLightboxFocus = document.activeElement;
+        }
+
         if (srcAvif) {
             lightboxSourceAvif.setAttribute('srcset', srcAvif);
         } else {
@@ -476,6 +528,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (event.key === 'Escape') {
             closeLightbox();
+        } else if (event.key === 'Tab') {
+            trapLightboxFocus(event);
         } else if (event.key === '+' || event.key === '=') {
             event.preventDefault();
             setLightboxZoom(lightboxZoom + lightboxZoomStep);

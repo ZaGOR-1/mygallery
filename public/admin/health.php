@@ -110,6 +110,8 @@ foreach ([
     'storage/trash' => trash_path(),
     'storage/logs' => storage_path('logs'),
     'storage/sessions' => storage_path('sessions'),
+    'storage/share_ratelimit' => storage_path('share_ratelimit'),
+    'storage/download_locks' => storage_path('download_locks'),
     'public/uploads/large' => uploads_path('large'),
     'public/uploads/thumbnails' => uploads_path('thumbnails'),
 ] as $label => $path) {
@@ -127,6 +129,13 @@ try {
         $stmt = db()->query('SELECT COUNT(*) FROM `' . $table . '`');
         $dbRows[] = health_row('Table `' . $table . '`', 'ok', (string) $stmt->fetchColumn() . ' rows');
     }
+
+    $invalidCoverCount = invalid_album_cover_count();
+    $dbRows[] = health_row(
+        'Album cover consistency',
+        $invalidCoverCount === 0 ? 'ok' : 'warn',
+        $invalidCoverCount === 0 ? 'all covers belong to their album' : $invalidCoverCount . ' invalid cover reference(s)'
+    );
 } catch (Throwable $exception) {
     app_log_exception($exception, 'Admin health DB check failed');
     $dbRows[] = health_row('DB connection', 'error', $exception->getMessage());

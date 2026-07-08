@@ -18,7 +18,7 @@ ErrorDocument 500 /500.php
         Header set Cache-Control "public, max-age=604800"
     </FilesMatch>
 
-    <FilesMatch "\.(jpg|jpeg)$">
+    <FilesMatch "\.(jpg|jpeg|webp|avif)$">
         Header set Cache-Control "public, max-age=2592000"
     </FilesMatch>
 </IfModule>
@@ -28,4 +28,6 @@ ErrorDocument 500 /500.php
     ExpiresByType text/css "access plus 7 days"
     ExpiresByType application/javascript "access plus 7 days"
     ExpiresByType image/jpeg "access plus 30 days"
+    ExpiresByType image/webp "access plus 30 days"
+    ExpiresByType image/avif "access plus 30 days"
 </IfModule>

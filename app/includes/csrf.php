@@ -30,21 +30,18 @@ function csrf_field(): string
     return '<input type="hidden" name="csrf_token" value="' . h(csrf_token()) . '">';
 }
 
-function verify_csrf(): bool
+function consume_csrf_token(string $token): bool
 {
-    start_session();
     $sessionTokenLegacy = $_SESSION['csrf_token'] ?? null;
-    $token = $_POST['csrf_token'] ?? null;
-
-    if (!is_string($token) || $token === '') {
-        return false;
-    }
 
     if (!empty($_SESSION['csrf_tokens']) && is_array($_SESSION['csrf_tokens'])) {
         foreach ($_SESSION['csrf_tokens'] as $index => $sessionToken) {
             if (hash_equals((string)$sessionToken, $token)) {
                 unset($_SESSION['csrf_tokens'][$index]);
                 $_SESSION['csrf_tokens'] = array_values($_SESSION['csrf_tokens']); // reindex
+                if (is_string($sessionTokenLegacy) && hash_equals($sessionTokenLegacy, $token)) {
+                    unset($_SESSION['csrf_token']);
+                }
                 return true;
             }
         }
@@ -56,6 +53,18 @@ function verify_csrf(): bool
     }
 
     return false;
+}
+
+function verify_csrf(): bool
+{
+    start_session();
+    $token = $_POST['csrf_token'] ?? null;
+
+    if (!is_string($token) || $token === '') {
+        return false;
+    }
+
+    return consume_csrf_token($token);
 }
 
 function csrf_error(): never

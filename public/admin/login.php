@@ -15,26 +15,6 @@ if (is_admin_logged_in()) {
 $pageTitle = 'Вхід - ' . app_name();
 $errors = [];
 
-function login_client_ip(): string
-{
-    $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-    $remoteAddr = is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : 'unknown';
-    $trustedProxies = app_config()['TRUSTED_PROXIES'] ?? [];
-
-    if (is_array($trustedProxies) && in_array($remoteAddr, $trustedProxies, true)) {
-        $forwardedFor = (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '');
-        $candidates = array_map('trim', explode(',', $forwardedFor));
-
-        foreach ($candidates as $candidate) {
-            if (filter_var($candidate, FILTER_VALIDATE_IP)) {
-                return $candidate;
-            }
-        }
-    }
-
-    return $remoteAddr;
-}
-
 function normalize_login_username(string $username): string
 {
     $username = trim($username);
@@ -188,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $username = trim((string) ($_POST['username'] ?? ''));
     $password = (string) ($_POST['password'] ?? '');
-    $ip = login_client_ip();
+    $ip = client_ip();
 
     if ($username === '' || $password === '') {
         $errors[] = 'Вкажіть логін і пароль.';

@@ -43,7 +43,7 @@ function share_audit_log(string $action, string $details): void
     
     $adminUser = $_SESSION['admin_username'] ?? 'unknown_admin';
     $timestamp = date('Y-m-d H:i:s');
-    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown_ip';
+    $ip = client_ip(default: 'unknown_ip');
     $message = "[$timestamp] [IP: $ip] [Admin: $adminUser] Action: $action | $details\n";
     
     @file_put_contents($logFile, $message, FILE_APPEND | LOCK_EX);

@@ -14,12 +14,16 @@ $apply = in_array('--apply', $argv, true);
 $directoriesToClean = [
     'logs' => storage_path('logs'),
     'sessions' => storage_path('sessions'),
+    'share_ratelimit' => storage_path('share_ratelimit'),
+    'download_locks' => storage_path('download_locks'),
     'trash' => trash_path(),
 ];
 
 // Configuration in seconds
 $maxAgeLogs = 30 * 86400; // 30 days
 $maxAgeSessions = 7 * 86400; // 7 days
+$maxAgeShareRateLimit = 2 * 86400; // 2 days
+$maxAgeDownloadLocks = 2 * 86400; // 2 days
 $maxAgeTrash = 7 * 86400; // 7 days
 
 $now = time();
@@ -36,6 +40,8 @@ foreach ($directoriesToClean as $type => $dir) {
     $maxAge = match ($type) {
         'logs' => $maxAgeLogs,
         'sessions' => $maxAgeSessions,
+        'share_ratelimit' => $maxAgeShareRateLimit,
+        'download_locks' => $maxAgeDownloadLocks,
         'trash' => $maxAgeTrash,
         default => 0,
     };
@@ -87,7 +93,7 @@ foreach ($directoriesToClean as $type => $dir) {
 }
 
 if (!$apply) {
-    echo "\nDRY RUN. Додайте --apply, щоб фактично видалити старі логи, сесії та файли кошика.\n";
+    echo "\nDRY RUN. Додайте --apply, щоб фактично видалити старі runtime-файли.\n";
 } else {
     echo "\nОчищення успішно завершено.\n";
     echo "Загалом видалено файлів: $deletedFiles\n";
