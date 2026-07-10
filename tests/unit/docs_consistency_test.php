@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
+$version = trim((string) file_get_contents($root . DIRECTORY_SEPARATOR . 'VERSION'));
 
 $roadmap = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'ROADMAP.md');
 assert_false(str_contains($roadmap, 'Drag-and-Drop Upload'), 'ROADMAP must not list implemented drag-and-drop upload as future work');
@@ -35,6 +36,24 @@ assert_true(str_contains($agents, 'VERSION'), 'AGENTS.md must point agents to VE
 
 $gemini = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'GEMINI.md');
 assert_false(str_contains($gemini, 'uploaded v6.4.6'), 'GEMINI.md must not refer to a stale uploaded workspace version');
+assert_false(str_contains($gemini, 'only create or update documentation files under `docs/`'), 'GEMINI audit output rule must not conflict with the root audit prompt');
+assert_true(str_contains($gemini, 'FULL_PROJECT_AUDIT.md'), 'GEMINI must point full audits to the canonical root report');
+
+$readme = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'README.md');
+assert_false(str_contains($readme, '`audit.md`'), 'README must not reference missing audit.md');
+assert_false(str_contains($readme, '`provirka.md`'), 'README must not reference missing provirka.md');
+
+$uiStatus = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'docs' . DIRECTORY_SEPARATOR . 'UI_UX_RECOMMENDATIONS.md');
+assert_true(str_contains($uiStatus, '## Реалізовано'), 'UI/UX doc must separate implemented work');
+assert_false(str_contains($uiStatus, 'Додати кнопку швидкого копіювання'), 'UI/UX doc must not propose the implemented copy button as future work');
+assert_false(str_contains($uiStatus, 'Впровадити Drag-and-drop'), 'UI/UX doc must not propose implemented drag-and-drop as future work');
+
+$bugs = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'docs' . DIRECTORY_SEPARATOR . 'BUGS.md');
+$auditReport = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'docs' . DIRECTORY_SEPARATOR . 'AUDIT_REPORT.md');
+assert_true(str_contains($bugs, 'MyGallery ' . $version), 'BUGS.md must name the current VERSION');
+assert_true(str_contains($auditReport, 'MyGallery ' . $version), 'AUDIT_REPORT.md must name the current VERSION');
+assert_true(str_contains($readme, '2026_07_10_add_photo_lock_version.sql'), 'README update commands must include the current lock_version migration');
+assert_true(str_contains($readme, '2026_07_10_add_share_target_check.sql'), 'README update commands must include the current share target migration');
 
 $workflow = (string) file_get_contents($root . DIRECTORY_SEPARATOR . '.github' . DIRECTORY_SEPARATOR . 'workflows' . DIRECTORY_SEPARATOR . 'build_release.yml');
 assert_true(str_contains($workflow, '"beta"'), 'release workflow must run for beta branch');

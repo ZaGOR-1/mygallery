@@ -10,6 +10,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: [ '8.2', '8.4' ]
     services:
       mysql:
         image: mysql:8.0
@@ -34,6 +38,7 @@ jobs:
       DB_NAME: my_photo_gallery
       DB_USER: gallery_user
       DB_PASSWORD: gallery_password
+      REQUIRE_TEST_DB: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +46,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
+          php-version: ${{ matrix.php }}
           extensions: mbstring, fileinfo, gd, pdo_mysql, exif, zip
 
       - name: Lint PHP files
@@ -72,6 +77,31 @@ jobs:
 
       - name: Run tests
         run: php tests/run.php
+
+      - name: Verify backup and restore round-trip
+        run: |
+          php tools/backup.php --output=/tmp/mygallery_ci_backup.zip
+          php tools/verify_backup.php /tmp/mygallery_ci_backup.zip
+          printf 'RESTORE\n' | php tools/restore.php /tmp/mygallery_ci_backup.zip
+          php tools/self_check.php
+          rm /tmp/mygallery_ci_backup.zip
+
+      - name: Run HTTP smoke tests
+        run: |
+          APP_URL=http://127.0.0.1:8080 php -S 127.0.0.1:8080 -t public >/tmp/mygallery_http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in {1..20}; do
+            curl --fail --silent --show-error http://127.0.0.1:8080/index.php -o /tmp/mygallery_index.html && break
+            sleep 1
+          done
+          curl --fail --silent --show-error --dump-header /tmp/mygallery_headers.txt http://127.0.0.1:8080/index.php -o /tmp/mygallery_index.html
+          grep -qi '^Content-Security-Policy:' /tmp/mygallery_headers.txt
+          grep -qi '^X-Content-Type-Options: nosniff' /tmp/mygallery_headers.txt
+          grep -q 'Персональна фотогалерея' /tmp/mygallery_index.html
+          curl --fail --silent --show-error http://127.0.0.1:8080/admin/login.php -o /tmp/mygallery_login.html
+          grep -q '<form' /tmp/mygallery_login.html
+          test "$(curl --silent --output /tmp/mygallery_missing.html --write-out '%{http_code}' http://127.0.0.1:8080/missing-route)" = '404'
 
       - name: Build release ZIP
         run: php tools/build_release.php
@@ -108,6 +138,10 @@ jobs:
                   "#(^|/)storage/originals/.+\\.(jpe?g|png|webp|avif)$#i",
                   "#(^|/)public/uploads/(large|thumbnails|originals)/.+\\.(jpe?g|png|webp|avif)$#i",
                   "#(^|/)storage/(logs|sessions|trash|download_locks|share_ratelimit)/.+#",
+                  "#(^|/)storage/(restore_journal\\.json|media_maintenance\\.lock)$#",
+                  "#(^|/)\\.restore-(stage|old|discard)-#",
+                  "#(^|/)(AGENTS|CLAUDE|GEMINI|FULL_PROJECT_AUDIT)\\.md$#i",
+                  "#(^|/)[^/]*(audit|prompt)[^/]*\\.md$#i",
               ];
               foreach ($forbidden as $pattern) {
                   if (preg_match($pattern, $withoutRoot) && !$allowedRuntimePlaceholders) {

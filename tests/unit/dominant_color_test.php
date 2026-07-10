@@ -4,17 +4,11 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 
-if (!defined('TESTS_DB_AVAILABLE') || !TESTS_DB_AVAILABLE) {
-    echo "  [SKIP] DB not available. ";
-    return;
-}
+// Schema coverage does not require a live DB; the image algorithm is a pure unit test.
+$schema = (string) file_get_contents(dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'schema.sql');
+assert_true(str_contains($schema, '`dominant_color` VARCHAR(7)'), 'photos schema must contain dominant_color column');
 
-// 1. Check if column exists in the database
-$stmt = db()->query("SHOW COLUMNS FROM photos");
-$columns = $stmt->fetchAll(PDO::FETCH_COLUMN);
-assert_true(in_array('dominant_color', $columns, true), 'photos table must contain dominant_color column');
-
-// 2. Test get_image_dominant_color with a dynamic red image
+// Test get_image_dominant_color with a dynamic red image
 $img = imagecreatetruecolor(10, 10);
 $red = imagecolorallocate($img, 255, 0, 0);
 imagefill($img, 0, 0, $red);

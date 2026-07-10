@@ -3,49 +3,22 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'BackupArchiveValidator.php';
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit('Цей файл запускається тільки з консолі.');
 }
 
-if ($argc < 2) {
+if (!defined('MYGALLERY_RESTORE_LIBRARY_ONLY') && $argc < 2) {
     fwrite(STDERR, "Usage: php tools/restore.php /path/to/backup.zip\n");
     fwrite(STDERR, "УВАГА: Цей скрипт повністю замінить поточну базу даних і файли!\n");
-    exit(1);
-}
-
-$zipPath = $argv[1];
-
-if (!is_file($zipPath)) {
-    fwrite(STDERR, "Файл не знайдено: {$zipPath}\n");
     exit(1);
 }
 
 if (!class_exists('ZipArchive')) {
     fwrite(STDERR, "Для роботи скрипта потрібне PHP-розширення zip.\n");
     exit(1);
-}
-
-function restore_zip_entry_is_safe(string $name): bool
-{
-    if ($name === '' || str_contains($name, "\0")) {
-        return false;
-    }
-
-    $normalized = str_replace('\\', '/', $name);
-
-    if (str_starts_with($normalized, '/') || preg_match('/^[A-Za-z]:/', $normalized) === 1) {
-        return false;
-    }
-
-    foreach (explode('/', $normalized) as $segment) {
-        if ($segment === '..') {
-            return false;
-        }
-    }
-
-    return true;
 }
 
 function restore_normalize_path(string $path): string
@@ -71,173 +44,375 @@ function restore_normalize_path(string $path): string
         if ($part === '' || $part === '.') {
             continue;
         }
-
         if ($part === '..') {
             array_pop($parts);
             continue;
         }
-
         $parts[] = $part;
     }
 
     return rtrim($prefix . implode(DIRECTORY_SEPARATOR, $parts), DIRECTORY_SEPARATOR);
 }
 
-function restore_path_is_inside(string $path, string $directory): bool
+function restore_same_path(string $first, string $second): bool
 {
-    $path = restore_normalize_path($path);
-    $directory = rtrim(restore_normalize_path($directory), DIRECTORY_SEPARATOR);
-    $pathForCompare = PHP_OS_FAMILY === 'Windows' ? strtolower($path) : $path;
-    $directoryForCompare = PHP_OS_FAMILY === 'Windows' ? strtolower($directory) : $directory;
+    $first = restore_normalize_path($first);
+    $second = restore_normalize_path($second);
+    if (PHP_OS_FAMILY === 'Windows') {
+        return strtolower($first) === strtolower($second);
+    }
 
-    return $pathForCompare === $directoryForCompare
-        || str_starts_with($pathForCompare, $directoryForCompare . DIRECTORY_SEPARATOR);
+    return $first === $second;
 }
 
-function clean_directory(string $dir): void
+/**
+ * @return array<string, array{target: string, stage: string, old: string, old_moved: bool, new_installed: bool}>
+ */
+function restore_build_mappings(string $operationId, ?array $targets = null): array
 {
-    if (!is_dir($dir)) {
+    if (preg_match('/\A[a-f0-9]{32}\z/', $operationId) !== 1) {
+        throw new RuntimeException('Некоректний restore operation id.');
+    }
+
+    $targets ??= [
+        'storage_originals' => originals_path(),
+        'public_large' => uploads_path('large'),
+        'public_thumbnails' => uploads_path('thumbnails'),
+    ];
+    if (array_keys($targets) !== ['storage_originals', 'public_large', 'public_thumbnails']) {
+        throw new RuntimeException('Некоректний набір media targets для restore.');
+    }
+    $mappings = [];
+
+    foreach ($targets as $group => $target) {
+        $target = rtrim(restore_normalize_path($target), DIRECTORY_SEPARATOR);
+        $parent = dirname($target);
+        $suffix = str_replace('_', '-', $group);
+        $mappings[$group] = [
+            'target' => $target,
+            'stage' => $parent . DIRECTORY_SEPARATOR . ".restore-stage-{$operationId}-{$suffix}",
+            'old' => $parent . DIRECTORY_SEPARATOR . ".restore-old-{$operationId}-{$suffix}",
+            'old_moved' => false,
+            'new_installed' => false,
+        ];
+    }
+
+    return $mappings;
+}
+
+function restore_remove_generated_tree(string $path, string $expectedParent): void
+{
+    if (!file_exists($path) && !is_link($path)) {
         return;
+    }
+    if (!restore_same_path(dirname($path), $expectedParent)
+        || preg_match('/\A\.restore-(?:stage|old|discard)-[a-f0-9]{32}-[a-z-]+\z/', basename($path)) !== 1) {
+        throw new RuntimeException('Відмова видаляти шлях поза restore staging: ' . $path);
+    }
+    if (!filesystem_path_is_safe_child($path, $expectedParent) || !is_dir($path)) {
+        throw new RuntimeException('Restore staging path має неочікуваний тип: ' . $path);
     }
 
     $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+        new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
         RecursiveIteratorIterator::CHILD_FIRST
     );
+    foreach ($iterator as $item) {
+        /** @var SplFileInfo $item */
+        $itemPath = $item->getPathname();
+        if (!filesystem_path_is_safe_child($itemPath, $path)) {
+            throw new RuntimeException('Небезпечний symlink/junction у restore staging: ' . $itemPath);
+        }
+        if ($item->isFile()) {
+            if (!unlink($itemPath)) {
+                throw new RuntimeException('Не вдалося видалити restore staging file: ' . $itemPath);
+            }
+        } elseif ($item->isDir() && !rmdir($itemPath)) {
+            throw new RuntimeException('Не вдалося видалити restore staging directory: ' . $itemPath);
+        }
+    }
+    if (!rmdir($path)) {
+        throw new RuntimeException('Не вдалося видалити restore staging root: ' . $path);
+    }
+}
 
-    foreach ($iterator as $fileinfo) {
-        $filename = $fileinfo->getFilename();
-        if ($filename === '.gitkeep' || $filename === '.htaccess') {
-            continue;
+/**
+ * @param array<string, array{target: string, stage: string, old: string, old_moved: bool, new_installed: bool}> $mappings
+ */
+function restore_write_journal(string $journalPath, string $operationId, string $marker, array $mappings): void
+{
+    $payload = json_encode([
+        'version' => 1,
+        'operation_id' => $operationId,
+        'database_marker' => $marker,
+        'mappings' => $mappings,
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    $temporary = $journalPath . '.tmp';
+    $written = file_put_contents($temporary, $payload, LOCK_EX);
+
+    if ($written !== strlen($payload) || !rename($temporary, $journalPath)) {
+        if (is_file($temporary)) {
+            unlink($temporary);
+        }
+        throw new RuntimeException('Не вдалося записати restore journal: ' . $journalPath);
+    }
+}
+
+/**
+ * @param array<string, array{target: string, stage: string, old: string, old_moved: bool, new_installed: bool}> $mappings
+ */
+function restore_prepare_staging(array $mappings): void
+{
+    foreach ($mappings as $group => $mapping) {
+        $target = $mapping['target'];
+        if (!is_dir($target)
+            || !is_writable($target)
+            || !filesystem_path_is_safe_child($target, dirname($target))) {
+            throw new RuntimeException('Media-директорія відсутня або недоступна для запису: ' . $target);
+        }
+        if (file_exists($mapping['stage']) || file_exists($mapping['old'])) {
+            throw new RuntimeException('Restore staging path уже існує: ' . $mapping['stage']);
+        }
+        if (!mkdir($mapping['stage'], 0750)) {
+            throw new RuntimeException('Не вдалося створити restore staging: ' . $mapping['stage']);
         }
 
-        $path = $fileinfo->getRealPath();
-        if (!is_string($path)) {
-            continue;
+        foreach (['.gitkeep', '.htaccess'] as $controlFile) {
+            $source = $target . DIRECTORY_SEPARATOR . $controlFile;
+            if (is_file($source) && !copy($source, $mapping['stage'] . DIRECTORY_SEPARATOR . $controlFile)) {
+                throw new RuntimeException('Не вдалося скопіювати control file у restore staging: ' . $source);
+            }
         }
-
-        if ($fileinfo->isDir()) {
-            @rmdir($path);
-        } else {
-            @unlink($path);
+        if (($group === 'public_large' || $group === 'public_thumbnails')
+            && !is_file($mapping['stage'] . DIRECTORY_SEPARATOR . '.htaccess')) {
+            throw new RuntimeException('У public media-директорії відсутній обов’язковий .htaccess: ' . $target);
         }
     }
 }
 
-function restore_validate_media_entry(ZipArchive $zip, int $index, string $name, string $prefix, string $baseDirectory): ?array
+/**
+ * @param array<string, list<array{entry: string, filename: string, size: int, sha256: string}>> $mediaEntries
+ * @param array<string, array{target: string, stage: string, old: string, old_moved: bool, new_installed: bool}> $mappings
+ */
+function restore_extract_to_staging(ZipArchive $zip, array $mediaEntries, array $mappings): int
 {
-    if (!str_starts_with($name, $prefix) || str_ends_with($name, '/')) {
-        return null;
+    $count = 0;
+    foreach ($mediaEntries as $group => $descriptors) {
+        if (!isset($mappings[$group])) {
+            throw new RuntimeException('Backup містить невідому media-групу: ' . $group);
+        }
+
+        foreach ($descriptors as $descriptor) {
+            $destination = $mappings[$group]['stage'] . DIRECTORY_SEPARATOR . $descriptor['filename'];
+            $source = $zip->getStream($descriptor['entry']);
+            if ($source === false) {
+                throw new RuntimeException('Не вдалося повторно відкрити backup entry: ' . $descriptor['entry']);
+            }
+            $target = fopen($destination, 'xb');
+            if ($target === false) {
+                fclose($source);
+                throw new RuntimeException('Не вдалося створити staging file: ' . $destination);
+            }
+
+            $hash = hash_init('sha256');
+            $written = 0;
+            try {
+                while (!feof($source)) {
+                    $chunk = fread($source, 1024 * 1024);
+                    if ($chunk === false) {
+                        throw new RuntimeException('Помилка читання backup entry: ' . $descriptor['entry']);
+                    }
+                    if ($chunk === '') {
+                        if (!feof($source)) {
+                            throw new RuntimeException('Передчасне завершення backup entry: ' . $descriptor['entry']);
+                        }
+                        break;
+                    }
+
+                    $length = strlen($chunk);
+                    $offset = 0;
+                    while ($offset < $length) {
+                        $result = fwrite($target, substr($chunk, $offset));
+                        if ($result === false || $result === 0) {
+                            throw new RuntimeException('Помилка запису staging file: ' . $destination);
+                        }
+                        $offset += $result;
+                    }
+                    $written += $length;
+                    if ($written > $descriptor['size']) {
+                        throw new RuntimeException('Staging file перевищив розмір із manifest: ' . $descriptor['entry']);
+                    }
+                    hash_update($hash, $chunk);
+                }
+                if (!fflush($target)) {
+                    throw new RuntimeException('Не вдалося flush staging file: ' . $destination);
+                }
+            } finally {
+                fclose($source);
+                fclose($target);
+            }
+
+            if ($written !== $descriptor['size'] || !hash_equals($descriptor['sha256'], hash_final($hash))) {
+                throw new RuntimeException('Staging file не збігається з manifest: ' . $descriptor['entry']);
+            }
+            $count++;
+        }
     }
 
-    $relative = substr($name, strlen($prefix));
-    $relative = str_replace('\\', '/', $relative);
-
-    if ($relative === '' || basename($relative) !== $relative || !valid_photo_filename($relative)) {
-        throw new RuntimeException("Некоректний media-файл у backup: {$name}");
-    }
-
-    $targetPath = rtrim($baseDirectory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $relative;
-    if (!restore_path_is_inside($targetPath, $baseDirectory)) {
-        throw new RuntimeException("Path Traversal у backup: {$name}");
-    }
-
-    $stream = $zip->getStream($name);
-    if ($stream === false) {
-        throw new RuntimeException("Не вдалося прочитати файл із backup: {$name}");
-    }
-    fclose($stream);
-
-    return [
-        'index' => $index,
-        'name' => $name,
-        'target' => $targetPath,
-        'base' => $baseDirectory,
-    ];
+    return $count;
 }
 
-function restore_validate_backup_archive(ZipArchive $zip): array
+/**
+ * @param array<string, array{target: string, stage: string, old: string, old_moved: bool, new_installed: bool}> $mappings
+ */
+function restore_swap_directories(array &$mappings, string $journalPath, string $operationId, string $marker): void
 {
-    $sqlContent = $zip->getFromName('mygallery_backup/database.sql');
-    if ($sqlContent === false || trim($sqlContent) === '') {
-        throw new RuntimeException('Файл mygallery_backup/database.sql не знайдено або він порожній.');
+    foreach ($mappings as $group => &$mapping) {
+        if (!rename($mapping['target'], $mapping['old'])) {
+            throw new RuntimeException('Не вдалося перемістити поточну media-директорію: ' . $mapping['target']);
+        }
+        $mapping['old_moved'] = true;
+        restore_write_journal($journalPath, $operationId, $marker, $mappings);
+
+        if (!rename($mapping['stage'], $mapping['target'])) {
+            throw new RuntimeException('Не вдалося активувати restore staging: ' . $mapping['stage']);
+        }
+        $mapping['new_installed'] = true;
+        restore_write_journal($journalPath, $operationId, $marker, $mappings);
+    }
+    unset($mapping);
+}
+
+/**
+ * Completes or rolls back a journaled media swap based on the DB marker committed
+ * in the same transaction as the restored dump.
+ */
+function restore_recover_interrupted_operation(PDO $pdo, string $journalPath, ?array $targets = null): void
+{
+    if (!is_file($journalPath)) {
+        return;
     }
 
-    $manifestContent = $zip->getFromName('mygallery_backup/BACKUP_MANIFEST.json');
-    if ($manifestContent === false || trim($manifestContent) === '') {
-        throw new RuntimeException('Файл mygallery_backup/BACKUP_MANIFEST.json не знайдено або він порожній.');
+    $json = file_get_contents($journalPath);
+    $journal = is_string($json) ? json_decode($json, true) : null;
+    if (!is_array($journal)
+        || ($journal['version'] ?? null) !== 1
+        || !is_string($journal['operation_id'] ?? null)
+        || !is_string($journal['database_marker'] ?? null)
+        || !is_array($journal['mappings'] ?? null)) {
+        throw new RuntimeException('Restore journal пошкоджений; потрібне ручне втручання: ' . $journalPath);
     }
 
-    $manifest = json_decode($manifestContent, true);
-    if (!is_array($manifest) || empty($manifest['created_at']) || !isset($manifest['files']) || !is_array($manifest['files'])) {
-        throw new RuntimeException('BACKUP_MANIFEST.json має некоректний формат.');
+    $operationId = $journal['operation_id'];
+    $marker = $journal['database_marker'];
+    if ($marker !== '__mygallery_restore__' . $operationId) {
+        throw new RuntimeException('Restore journal містить некоректний DB marker.');
     }
 
-    foreach ([originals_path(), uploads_path('large'), uploads_path('thumbnails')] as $directory) {
-        if (!is_dir($directory) && !mkdir($directory, 0755, true)) {
-            throw new RuntimeException('Не вдалося створити media-директорію: ' . $directory);
-        }
-
-        if (!is_writable($directory)) {
-            throw new RuntimeException('Media-директорія недоступна для запису: ' . $directory);
+    $expectedMappings = restore_build_mappings($operationId, $targets);
+    foreach ($expectedMappings as $group => $expected) {
+        $actual = $journal['mappings'][$group] ?? null;
+        if (!is_array($actual)
+            || !restore_same_path((string) ($actual['target'] ?? ''), $expected['target'])
+            || !restore_same_path((string) ($actual['stage'] ?? ''), $expected['stage'])
+            || !restore_same_path((string) ($actual['old'] ?? ''), $expected['old'])) {
+            throw new RuntimeException('Restore journal містить шлях поза дозволеним staging.');
         }
     }
 
-    $entries = [];
-    $allowedExactFiles = [
-        'mygallery_backup/database.sql' => true,
-        'mygallery_backup/BACKUP_MANIFEST.json' => true,
-        'mygallery_backup/config/database.php' => true,
-    ];
-    $allowedDirectoryEntries = [
-        'mygallery_backup/' => true,
-        'mygallery_backup/storage/' => true,
-        'mygallery_backup/storage/originals/' => true,
-        'mygallery_backup/public/' => true,
-        'mygallery_backup/public/uploads/' => true,
-        'mygallery_backup/public/uploads/large/' => true,
-        'mygallery_backup/public/uploads/thumbnails/' => true,
-        'mygallery_backup/config/' => true,
-    ];
+    $statement = $pdo->prepare('SELECT 1 FROM schema_migrations WHERE migration = ? LIMIT 1');
+    $statement->execute([$marker]);
+    $databaseCommitted = $statement->fetchColumn() !== false;
 
-    for ($i = 0; $i < $zip->numFiles; $i++) {
-        $stat = $zip->statIndex($i);
-        if ($stat === false || !isset($stat['name'])) {
-            throw new RuntimeException('Не вдалося прочитати entry з backup ZIP.');
-        }
+    foreach ($expectedMappings as $group => $mapping) {
+        $targetExists = is_dir($mapping['target']);
+        $stageExists = is_dir($mapping['stage']);
+        $oldExists = is_dir($mapping['old']);
 
-        $name = str_replace('\\', '/', (string) $stat['name']);
-        if (!restore_zip_entry_is_safe($name)) {
-            throw new RuntimeException("Небезпечний шлях у backup ZIP: {$name}");
-        }
-
-        if (str_ends_with($name, '/')) {
-            if (!isset($allowedDirectoryEntries[$name])) {
-                throw new RuntimeException("Неочікувана директорія у backup ZIP: {$name}");
+        if ($databaseCommitted) {
+            if ($stageExists && !$oldExists) {
+                if ($targetExists && !rename($mapping['target'], $mapping['old'])) {
+                    throw new RuntimeException('Не вдалося завершити interrupted restore для ' . $group);
+                }
+                $oldExists = is_dir($mapping['old']);
+                $targetExists = is_dir($mapping['target']);
+            }
+            if ($stageExists && !$targetExists) {
+                if (!rename($mapping['stage'], $mapping['target'])) {
+                    throw new RuntimeException('Не вдалося активувати staging після interrupted restore: ' . $group);
+                }
+                $stageExists = false;
+                $targetExists = true;
+            }
+            if (!$targetExists) {
+                throw new RuntimeException('Неможливо завершити interrupted restore: відсутні нові media для ' . $group);
+            }
+            if ($stageExists) {
+                restore_remove_generated_tree($mapping['stage'], dirname($mapping['stage']));
+            }
+            if ($oldExists) {
+                restore_remove_generated_tree($mapping['old'], dirname($mapping['old']));
             }
             continue;
         }
 
-        if (isset($allowedExactFiles[$name])) {
-            continue;
+        if ($oldExists) {
+            if ($targetExists) {
+                $discard = dirname($mapping['target']) . DIRECTORY_SEPARATOR
+                    . '.restore-discard-' . $operationId . '-' . str_replace('_', '-', $group);
+                if (file_exists($discard) || !rename($mapping['target'], $discard)) {
+                    throw new RuntimeException('Не вдалося відкласти нові media під час rollback: ' . $group);
+                }
+                if (!rename($mapping['old'], $mapping['target'])) {
+                    throw new RuntimeException('Не вдалося повернути старі media під час rollback: ' . $group);
+                }
+                restore_remove_generated_tree($discard, dirname($discard));
+            } elseif (!rename($mapping['old'], $mapping['target'])) {
+                throw new RuntimeException('Не вдалося повернути старі media під час rollback: ' . $group);
+            }
+        } elseif (!$targetExists) {
+            throw new RuntimeException('Неможливо відкотити interrupted restore: відсутні старі media для ' . $group);
         }
 
-        $entry = restore_validate_media_entry($zip, $i, $name, 'mygallery_backup/storage/originals/', originals_path())
-            ?? restore_validate_media_entry($zip, $i, $name, 'mygallery_backup/public/uploads/large/', uploads_path('large'))
-            ?? restore_validate_media_entry($zip, $i, $name, 'mygallery_backup/public/uploads/thumbnails/', uploads_path('thumbnails'));
-
-        if ($entry === null) {
-            throw new RuntimeException("Неочікуваний файл у backup ZIP: {$name}");
+        if ($stageExists) {
+            restore_remove_generated_tree($mapping['stage'], dirname($mapping['stage']));
         }
-
-        $entries[] = $entry;
     }
 
-    return [
-        'sql' => $sqlContent,
-        'manifest' => $manifest,
-        'media_entries' => $entries,
-    ];
+    if ($databaseCommitted) {
+        $deleteMarker = $pdo->prepare('DELETE FROM schema_migrations WHERE migration = ?');
+        $deleteMarker->execute([$marker]);
+    }
+    if (!unlink($journalPath)) {
+        throw new RuntimeException('Не вдалося видалити завершений restore journal: ' . $journalPath);
+    }
+}
+
+if (defined('MYGALLERY_RESTORE_LIBRARY_ONLY')) {
+    return;
+}
+
+$zipPath = $argv[1];
+if (!is_file($zipPath)) {
+    fwrite(STDERR, "Файл не знайдено: {$zipPath}\n");
+    exit(1);
+}
+
+$journalPath = storage_path('restore_journal.json');
+if (is_file($journalPath)) {
+    $recoveryMaintenanceLock = null;
+    try {
+        $recoveryMaintenanceLock = acquire_media_maintenance_lock(LOCK_EX);
+        echo "Знайдено interrupted restore journal. Виконується безпечне відновлення стану...\n";
+        restore_recover_interrupted_operation(db(), $journalPath);
+        release_media_maintenance_lock($recoveryMaintenanceLock);
+        echo "Interrupted restore узгоджено.\n";
+    } catch (Throwable $exception) {
+        release_media_maintenance_lock($recoveryMaintenanceLock);
+        app_log_exception($exception, 'Interrupted restore recovery failed');
+        fwrite(STDERR, "Не вдалося узгодити попередній restore: " . $exception->getMessage() . "\n");
+        exit(1);
+    }
 }
 
 $zip = new ZipArchive();
@@ -247,16 +422,17 @@ if ($zip->open($zipPath) !== true) {
 }
 
 try {
-    echo "Перевірка backup архіву перед відновленням...\n";
-    $validatedBackup = restore_validate_backup_archive($zip);
-    echo "Backup архів валідний. Media-файлів до відновлення: " . count($validatedBackup['media_entries']) . ".\n";
+    echo "Повна перевірка backup архіву перед відновленням...\n";
+    $validatedBackup = backup_validate_archive($zip);
+    $mediaCount = array_sum(array_map('count', $validatedBackup['media_entries']));
+    echo "Backup format 2 валідний: перевірено allowlist, streams, size і SHA-256. Media-файлів: {$mediaCount}.\n";
 } catch (Throwable $exception) {
     fwrite(STDERR, "Backup не пройшов перевірку: " . $exception->getMessage() . "\n");
     $zip->close();
     exit(1);
 }
 
-echo "УВАГА: Ця дія незворотна! Вона видалить усі існуючі дані та замінить їх даними з резервної копії.\n";
+echo "УВАГА: Буде повністю замінено поточну БД і media-файли.\n";
 echo "Щоб продовжити, введіть 'RESTORE': ";
 $confirmation = trim((string) fgets(STDIN));
 if ($confirmation !== 'RESTORE') {
@@ -265,74 +441,81 @@ if ($confirmation !== 'RESTORE') {
     exit(1);
 }
 
-// Дамп нового формату містить лише DML (DELETE+INSERT), тож його можна застосувати
-// однією транзакцією: будь-який збій посередині повністю відкочується, і БД лишається
-// у попередньому консистентному стані (медіа стираються лише після успіху нижче).
-// Старі бекапи містять `LOCK TABLES`, які в MySQL роблять неявний COMMIT і несумісні
-// з транзакцією, тому для них зберігаємо попередню (неатомарну) поведінку.
-$pdo = db();
-$dumpHasTableLocks = preg_match('/^\s*LOCK TABLES/im', $validatedBackup['sql']) === 1;
+$operationId = bin2hex(random_bytes(16));
+$marker = '__mygallery_restore__' . $operationId;
+$mappings = restore_build_mappings($operationId);
+$mediaMaintenanceLock = null;
 
 try {
-    if ($dumpHasTableLocks) {
-        fwrite(STDERR, "Увага: бекап старого формату (LOCK TABLES) — відновлення БД не транзакційне.\n");
-        $pdo->exec($validatedBackup['sql']);
-    } else {
-        $pdo->beginTransaction();
-        $pdo->exec($validatedBackup['sql']);
-        $pdo->commit();
+    $mediaMaintenanceLock = acquire_media_maintenance_lock(LOCK_EX);
+    $pdo = db();
+    $pdo->query('SELECT 1');
+    echo "Підготовка і повторна перевірка media у staging...\n";
+    restore_prepare_staging($mappings);
+    $stagedCount = restore_extract_to_staging($zip, $validatedBackup['media_entries'], $mappings);
+    restore_write_journal($journalPath, $operationId, $marker, $mappings);
+} catch (Throwable $exception) {
+    foreach ($mappings as $mapping) {
+        try {
+            restore_remove_generated_tree($mapping['stage'], dirname($mapping['stage']));
+        } catch (Throwable) {
+            // Основна помилка нижче важливіша; залишок staging не активований.
+        }
     }
-    echo "Базу даних успішно відновлено.\n";
-} catch (Throwable $e) {
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
-    fwrite(STDERR, "Помилка відновлення БД: " . $e->getMessage() . "\n");
-    fwrite(STDERR, "Зміни до БД відкочено, медіа-файли не змінювалися.\n");
+    app_log_exception($exception, 'Restore staging failed');
+    fwrite(STDERR, "Restore зупинено до зміни БД/media: " . $exception->getMessage() . "\n");
+    release_media_maintenance_lock($mediaMaintenanceLock);
     $zip->close();
     exit(1);
 }
 
-echo "Очищення поточних медіа-файлів...\n";
-clean_directory(originals_path());
-clean_directory(uploads_path('large'));
-clean_directory(uploads_path('thumbnails'));
-
-echo "Розпакування медіа-файлів...\n";
-$extractedCount = 0;
-foreach ($validatedBackup['media_entries'] as $entry) {
-    $dir = dirname($entry['target']);
-    if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
-        fwrite(STDERR, "Не вдалося створити директорію: {$dir}\n");
-        $zip->close();
-        exit(1);
+try {
+    if (!$pdo->beginTransaction()) {
+        throw new RuntimeException('Не вдалося почати DB transaction для restore.');
     }
-
-    $source = $zip->getStream($entry['name']);
-    if ($source === false) {
-        fwrite(STDERR, "Не вдалося прочитати файл із backup: {$entry['name']}\n");
-        $zip->close();
-        exit(1);
+    $pdo->exec($validatedBackup['sql']);
+    $insertMarker = $pdo->prepare('INSERT INTO schema_migrations (migration) VALUES (?)');
+    $insertMarker->execute([$marker]);
+    restore_swap_directories($mappings, $journalPath, $operationId, $marker);
+    if (!$pdo->commit()) {
+        throw new RuntimeException('Не вдалося commit DB transaction для restore.');
     }
-
-    $target = fopen($entry['target'], 'wb');
-    if ($target === false) {
-        fclose($source);
-        fwrite(STDERR, "Не вдалося записати файл: {$entry['target']}\n");
-        $zip->close();
-        exit(1);
+} catch (Throwable $exception) {
+    try {
+        if ($pdo->inTransaction() && !$pdo->rollBack()) {
+            throw new RuntimeException('PDO повернув false під час rollback.');
+        }
+    } catch (Throwable $rollbackException) {
+        app_log_exception($rollbackException, 'Atomic restore DB rollback failed');
     }
-
-    stream_copy_to_stream($source, $target);
-    fclose($source);
-    fclose($target);
-    if (str_contains($entry['target'], 'public' . DIRECTORY_SEPARATOR . 'uploads')) {
-        create_webp_copy($entry['target']);
-        create_avif_copy($entry['target']);
+    app_log_exception($exception, 'Atomic restore failed');
+    fwrite(STDERR, "Restore не завершено: " . $exception->getMessage() . "\n");
+    try {
+        restore_recover_interrupted_operation($pdo, $journalPath);
+        fwrite(STDERR, "Попередню БД та media-файли узгоджено/відновлено за журналом.\n");
+    } catch (Throwable $recoveryException) {
+        app_log_exception($recoveryException, 'Atomic restore rollback recovery failed');
+        fwrite(STDERR, "Автоматичне узгодження не вдалося. Не запускайте сайт; повторно запустіть restore: "
+            . $recoveryException->getMessage() . "\n");
     }
-    $extractedCount++;
+    release_media_maintenance_lock($mediaMaintenanceLock);
+    $zip->close();
+    exit(1);
+}
+
+try {
+    restore_recover_interrupted_operation($pdo, $journalPath);
+} catch (Throwable $exception) {
+    app_log_exception($exception, 'Restore post-commit cleanup failed');
+    fwrite(STDERR, "Дані відновлено, але cleanup не завершено. Повторно запустіть restore перед запуском сайту: "
+        . $exception->getMessage() . "\n");
+    release_media_maintenance_lock($mediaMaintenanceLock);
+    $zip->close();
+    exit(1);
 }
 
 $zip->close();
-echo "Відновлено файлів: {$extractedCount}.\n";
+release_media_maintenance_lock($mediaMaintenanceLock);
+echo "Базу даних і media-директорії атомарно перемкнено.\n";
+echo "Відновлено файлів: {$stagedCount}.\n";
 echo "Відновлення успішно завершено!\n";

@@ -7,6 +7,7 @@ require_once __DIR__ . '/functions.php';
 
 function create_photo_from_upload(PDO $pdo, array $file, array $input): int
 {
+    $maintenanceLock = acquire_media_maintenance_lock(LOCK_SH);
     $tmpName = (string) $file['tmp_name'];
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
     $mime = $finfo ? finfo_file($finfo, $tmpName) : false;
@@ -66,9 +67,10 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
         $savedFileSize = is_file($originalPath) ? filesize($originalPath) : false;
         $exifJson = json_encode($exif['raw'], JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
+        $safeOriginalName = safe_original_name((string) $file['name']);
         $title = trim((string) ($input['title'] ?? ''));
         if ($title === '') {
-            $title = pathinfo((string) $file['name'], PATHINFO_FILENAME);
+            $title = pathinfo($safeOriginalName, PATHINFO_FILENAME);
         }
         $description = clean_description((string) ($input['description'] ?? ''));
 
@@ -103,7 +105,7 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
             'album_id' => $albumId,
             'filename' => $filename,
             'thumbnail_filename' => $thumbnailFilename,
-            'original_name' => safe_original_name((string) $file['name']),
+            'original_name' => $safeOriginalName,
             'title' => text_limit($title, 255),
             'description' => $description,
             'mime_type' => 'image/jpeg',
@@ -124,6 +126,7 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
 
         $pdo->commit();
 
+        release_media_maintenance_lock($maintenanceLock);
         return $photoId;
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {
@@ -142,6 +145,7 @@ function create_photo_from_upload(PDO $pdo, array $file, array $input): int
             unlink_file_with_log(derivative_path($thumbnailPath, 'avif'), 'Upload cleanup');
         }
 
+        release_media_maintenance_lock($maintenanceLock);
         throw $exception;
     }
 }
@@ -154,6 +158,11 @@ function update_photo_metadata(PDO $pdo, int $photoId, array $input): void
 
     if ($title === '') {
         throw new InvalidArgumentException('Назва не може бути порожньою.');
+    }
+
+    $expectedLockVersion = filter_var($input['lock_version'] ?? null, FILTER_VALIDATE_INT);
+    if ($expectedLockVersion === false || $expectedLockVersion < 1) {
+        throw new InvalidArgumentException('Некоректна версія редагування. Оновіть сторінку і спробуйте знову.');
     }
 
     $albumId = null;
@@ -177,7 +186,7 @@ function update_photo_metadata(PDO $pdo, int $photoId, array $input): void
     try {
         $pdo->beginTransaction();
         
-        $stmt = $pdo->prepare('SELECT album_id, COALESCE(updated_at, created_at) AS lock_version FROM photos WHERE id = ? FOR UPDATE');
+        $stmt = $pdo->prepare('SELECT album_id FROM photos WHERE id = ? FOR UPDATE');
         $stmt->execute([$photoId]);
         $photoData = $stmt->fetch(PDO::FETCH_ASSOC);
         
@@ -185,19 +194,23 @@ function update_photo_metadata(PDO $pdo, int $photoId, array $input): void
             throw new InvalidArgumentException('Фотографію не знайдено.');
         }
 
-        if (!isset($input['updated_at']) || $input['updated_at'] === '' || (string) $input['updated_at'] !== (string) $photoData['lock_version']) {
-            throw new InvalidArgumentException('Фотографію було змінено іншим адміністратором. Будь ласка, оновіть сторінку і спробуйте знову.');
-        }
-        
         $oldAlbumId = $photoData['album_id'];
         
-        $stmt = $pdo->prepare('UPDATE photos SET album_id = :album_id, title = :title, description = :description WHERE id = :id');
+        $stmt = $pdo->prepare(
+            'UPDATE photos
+             SET album_id = :album_id, title = :title, description = :description, lock_version = lock_version + 1
+             WHERE id = :id AND lock_version = :lock_version'
+        );
         $stmt->execute([
             'album_id' => $albumId,
             'title' => text_limit($title, 255),
             'description' => $description,
             'id' => $photoId,
+            'lock_version' => $expectedLockVersion,
         ]);
+        if ($stmt->rowCount() !== 1) {
+            throw new InvalidArgumentException('Фотографію було змінено іншим адміністратором. Будь ласка, оновіть сторінку і спробуйте знову.');
+        }
         
         if ($oldAlbumId !== false && $oldAlbumId !== null && (int)$oldAlbumId !== $albumId) {
             $stmtCover = $pdo->prepare('UPDATE albums SET cover_photo_id = NULL WHERE id = ? AND cover_photo_id = ?');
@@ -217,6 +230,7 @@ function update_photo_metadata(PDO $pdo, int $photoId, array $input): void
 
 function delete_photo_with_trash(PDO $pdo, int $photoId, array $photo): void
 {
+    $maintenanceLock = acquire_media_maintenance_lock(LOCK_SH);
     $fileErrors = validate_photo_files_deletable($photo);
     if (!empty($fileErrors)) {
         throw new RuntimeException(implode(' ', $fileErrors));
@@ -250,6 +264,60 @@ function delete_photo_with_trash(PDO $pdo, int $photoId, array $photo): void
         throw new RuntimeException($message, 0, $exception);
     }
 
+    release_media_maintenance_lock($maintenanceLock);
+}
+
+/**
+ * @param list<int> $photoIds
+ * @return array{deleted: list<int>, failed: array<int, string>}
+ */
+function bulk_delete_photos_with_trash(PDO $pdo, array $photoIds): array
+{
+    $photoIds = array_values(array_unique(array_filter(
+        array_map('intval', $photoIds),
+        static fn (int $id): bool => $id > 0
+    )));
+    $result = ['deleted' => [], 'failed' => []];
+    if ($photoIds === []) {
+        return $result;
+    }
+
+    $placeholders = implode(',', array_fill(0, count($photoIds), '?'));
+    $statement = $pdo->prepare("SELECT * FROM photos WHERE id IN ({$placeholders})");
+    $statement->execute($photoIds);
+    $photosById = [];
+    foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $photo) {
+        $photosById[(int) $photo['id']] = $photo;
+    }
+
+    $folderErrors = ensure_upload_folders();
+    foreach ($photoIds as $photoId) {
+        if (!isset($photosById[$photoId])) {
+            $result['failed'][$photoId] = 'Фотографію не знайдено.';
+            continue;
+        }
+        $fileErrors = array_merge($folderErrors, validate_photo_files_deletable($photosById[$photoId]));
+        if ($fileErrors !== []) {
+            $result['failed'][$photoId] = implode(' ', $fileErrors);
+        }
+    }
+
+    // No item is changed if the preflight found a missing row/file/folder.
+    if ($result['failed'] !== []) {
+        return $result;
+    }
+
+    foreach ($photoIds as $photoId) {
+        try {
+            delete_photo_with_trash($pdo, $photoId, $photosById[$photoId]);
+            $result['deleted'][] = $photoId;
+        } catch (Throwable $exception) {
+            app_log_exception($exception, 'Bulk delete photo #' . $photoId . ' failed');
+            $result['failed'][$photoId] = $exception->getMessage();
+        }
+    }
+
+    return $result;
 }
 
 function update_album_with_validation(PDO $pdo, int $albumId, string $newName, ?int $coverPhotoId = null, int $isPrivate = 0): void
@@ -283,7 +351,7 @@ function delete_album_with_validation(PDO $pdo, int $albumId): void
 
     try {
         $pdo->beginTransaction();
-        $stmt = $pdo->prepare('UPDATE photos SET album_id = NULL WHERE album_id = :id');
+        $stmt = $pdo->prepare('UPDATE photos SET album_id = NULL, lock_version = lock_version + 1 WHERE album_id = :id');
         $stmt->execute(['id' => $albumId]);
 
         $stmt = $pdo->prepare('DELETE FROM albums WHERE id = :id');
@@ -299,6 +367,7 @@ function delete_album_with_validation(PDO $pdo, int $albumId): void
 
 function restore_photo_from_trash(PDO $pdo, string $operationId): void
 {
+    $maintenanceLock = acquire_media_maintenance_lock(LOCK_SH);
     $manifestPath = trash_path($operationId . '.json');
     if (!is_file($manifestPath)) {
         throw new InvalidArgumentException('Журнал видалення не знайдено.');
@@ -345,9 +414,9 @@ function restore_photo_from_trash(PDO $pdo, string $operationId): void
 
         $stmt = $pdo->prepare(
             'INSERT INTO photos
-            (id, album_id, filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json, original_sha256, dominant_color, created_at)
+            (id, album_id, filename, thumbnail_filename, original_name, title, description, mime_type, file_size, width, height, camera_make, camera_model, lens_model, taken_at, exif_json, original_sha256, dominant_color, lock_version, created_at)
             VALUES
-            (:id, :album_id, :filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json, :original_sha256, :dominant_color, :created_at)'
+            (:id, :album_id, :filename, :thumbnail_filename, :original_name, :title, :description, :mime_type, :file_size, :width, :height, :camera_make, :camera_model, :lens_model, :taken_at, :exif_json, :original_sha256, :dominant_color, :lock_version, :created_at)'
         );
 
         $stmt->execute([
@@ -369,6 +438,7 @@ function restore_photo_from_trash(PDO $pdo, string $operationId): void
             'exif_json' => $photoData['exif_json'] ?? null,
             'original_sha256' => $photoData['original_sha256'] ?? null,
             'dominant_color' => $photoData['dominant_color'] ?? null,
+            'lock_version' => max(1, (int) ($photoData['lock_version'] ?? 1)),
             'created_at' => $photoData['created_at'],
         ]);
 
@@ -380,6 +450,7 @@ function restore_photo_from_trash(PDO $pdo, string $operationId): void
 
         // Delete manifest file
         @unlink($manifestPath);
+        release_media_maintenance_lock($maintenanceLock);
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
@@ -388,6 +459,7 @@ function restore_photo_from_trash(PDO $pdo, string $operationId): void
         foreach ($movedBack as $file) {
             @rename($file['from'], $file['trash']);
         }
+        release_media_maintenance_lock($maintenanceLock);
         throw $exception;
     }
 }

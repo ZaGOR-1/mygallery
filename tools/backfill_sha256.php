@@ -19,7 +19,7 @@ try {
     $updated = 0;
     $missing = 0;
 
-    $updateStmt = $pdo->prepare("UPDATE photos SET original_sha256 = :sha256 WHERE id = :id");
+    $updateStmt = $pdo->prepare("UPDATE photos SET original_sha256 = :sha256, lock_version = lock_version + 1 WHERE id = :id");
 
     foreach ($photos as $photo) {
         $path = originals_path($photo['filename']);

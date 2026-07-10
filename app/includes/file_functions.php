@@ -203,7 +203,17 @@ function ensure_upload_folders(): array
 
 function safe_original_name(string $name): string
 {
-    $name = basename($name);
+    // Browsers may submit either POSIX paths or Windows fake paths. Normalize
+    // both separators before selecting the final segment on every OS.
+    $name = str_replace('\\', '/', $name);
+    $segments = explode('/', $name);
+    $name = (string) end($segments);
+    $name = preg_replace('/[\x00-\x1F\x7F]/', '', $name) ?? '';
+    $name = trim($name);
+
+    if ($name === '' || $name === '.' || $name === '..') {
+        return 'photo.jpg';
+    }
 
     return text_limit($name, 255);
 }

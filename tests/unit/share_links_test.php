@@ -5,8 +5,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 
 if (!defined('TESTS_DB_AVAILABLE') || !TESTS_DB_AVAILABLE) {
-    echo "  [SKIP] DB not available. ";
-    return;
+    skip_test('DB not available.');
 }
 
 // Перевірка формату токена (32 символи hex)
@@ -25,3 +24,27 @@ assert_true(in_array('token', $columns, true), 'share_links must have token colu
 assert_true(in_array('photo_id', $columns, true), 'share_links must have photo_id column');
 assert_true(in_array('album_id', $columns, true), 'share_links must have album_id column');
 assert_true(in_array('expires_at', $columns, true), 'share_links must have expires_at column');
+
+$stmt = db()->prepare(
+    "SELECT COUNT(*)
+    FROM information_schema.TABLE_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'share_links'
+      AND CONSTRAINT_NAME = 'chk_share_links_exactly_one_target'
+      AND CONSTRAINT_TYPE = 'CHECK'"
+);
+$stmt->execute();
+assert_equals(1, (int) $stmt->fetchColumn(), 'share_links must enforce exactly one target with a CHECK constraint');
+
+$invalidToken = bin2hex(random_bytes(16));
+$invalidTargetRejected = false;
+try {
+    $stmt = db()->prepare('INSERT INTO share_links (token, photo_id, album_id) VALUES (?, NULL, NULL)');
+    $stmt->execute([$invalidToken]);
+} catch (PDOException) {
+    $invalidTargetRejected = true;
+} finally {
+    $stmt = db()->prepare('DELETE FROM share_links WHERE token = ?');
+    $stmt->execute([$invalidToken]);
+}
+assert_true($invalidTargetRejected, 'share_links CHECK must reject a row without a target');

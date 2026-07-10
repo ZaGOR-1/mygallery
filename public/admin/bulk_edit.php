@@ -26,6 +26,7 @@ if (!is_array($photoIdsRaw) || empty($photoIdsRaw)) {
 
 $photoIds = array_map('intval', $photoIdsRaw);
 $photoIds = array_filter($photoIds, fn($id) => $id > 0);
+$photoIds = array_values(array_unique($photoIds));
 
 if (empty($photoIds)) {
     set_flash('error', 'Ви не вибрали жодної фотографії для редагування.');
@@ -35,22 +36,28 @@ if (empty($photoIds)) {
 if ($action === 'delete') {
     require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'photo_service.php';
     try {
-        $pdo = db();
-        $successCount = 0;
-        foreach ($photoIds as $pid) {
-            $stmt = $pdo->prepare('SELECT * FROM photos WHERE id = ?');
-            $stmt->execute([$pid]);
-            $photo = $stmt->fetch();
-            if ($photo) {
-                delete_photo_with_trash($pdo, $pid, $photo);
-                $successCount++;
-            }
+        $result = bulk_delete_photos_with_trash(db(), $photoIds);
+        if ($result['deleted'] !== []) {
+            set_flash(
+                'success',
+                'Переміщено в кошик ID: #' . implode(', #', $result['deleted']) . '.'
+            );
         }
-        set_flash('success', 'Успішно переміщено в кошик: ' . $successCount . ' фото.');
+        if ($result['failed'] !== []) {
+            $details = [];
+            foreach ($result['failed'] as $failedId => $message) {
+                $details[] = '#' . $failedId . ': ' . $message;
+            }
+            set_flash(
+                'error',
+                ($result['deleted'] === [] ? 'Масове видалення скасовано до змін. ' : 'Частина операції не виконана. ')
+                . implode(' ', $details)
+            );
+        }
         redirect('admin/index.php');
     } catch (Throwable $e) {
         app_log_exception($e, 'Bulk delete failed');
-        set_flash('error', 'Не вдалося видалити деякі фотографії. Дивіться логи.');
+        set_flash('error', 'Масове видалення не запущено через системну помилку. Дивіться приватний лог.');
         redirect('admin/index.php');
     }
 } elseif ($action === 'save') {
@@ -100,6 +107,9 @@ if ($action === 'delete') {
                 }
             }
         }
+
+        $revisionStmt = $pdo->prepare("UPDATE photos SET lock_version = lock_version + 1 WHERE id IN ($placeholders)");
+        $revisionStmt->execute($photoIds);
 
         $pdo->commit();
         set_flash('success', 'Масове редагування успішно завершено для ' . count($photoIds) . ' фото.');

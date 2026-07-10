@@ -11,6 +11,7 @@ if (PHP_SAPI !== 'cli') {
 
 $apply = in_array('--apply', $argv, true);
 $purgeDeleted = in_array('--purge-deleted', $argv, true);
+$mediaMaintenanceLock = $apply ? acquire_media_maintenance_lock(LOCK_SH) : null;
 $manifests = glob(trash_path('*.json')) ?: [];
 $totalRestored = 0;
 $totalPurged = 0;
@@ -134,3 +135,5 @@ if (!$apply) {
 } else {
     echo "\nDONE. Restored: $totalRestored, purged: $totalPurged, skipped: $totalSkipped, errors: $totalErrors.\n";
 }
+
+release_media_maintenance_lock($mediaMaintenanceLock);

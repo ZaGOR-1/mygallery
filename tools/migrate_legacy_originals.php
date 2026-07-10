@@ -12,6 +12,7 @@ if (PHP_SAPI !== 'cli') {
 $deletePublicCopies = in_array('--delete-public', $argv, true);
 $dryRun = !in_array('--apply', $argv, true);
 $legacyFiles = glob(uploads_path('originals') . DIRECTORY_SEPARATOR . '*.jpg') ?: [];
+$mediaMaintenanceLock = $dryRun ? null : acquire_media_maintenance_lock(LOCK_SH);
 
 if (empty($legacyFiles)) {
     echo "Legacy originals у public/uploads/originals не знайдено.\n";
@@ -54,3 +55,5 @@ foreach ($legacyFiles as $legacyPath) {
 if ($dryRun) {
     echo "\nЗапустіть з --apply, щоб виконати. Додайте --delete-public, щоб видаляти public-копії навіть коли приватна копія відрізняється.\n";
 }
+
+release_media_maintenance_lock($mediaMaintenanceLock);

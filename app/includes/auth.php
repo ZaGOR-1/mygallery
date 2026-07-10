@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'functions.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'auth_functions.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'csrf.php';
 
 function is_admin_logged_in(): bool
 {
@@ -69,7 +70,7 @@ function login_admin(array $admin): void
     $_SESSION['admin_login_at'] = time();
     $_SESSION['admin_last_activity'] = time();
     $_SESSION['admin_checked_at'] = time();
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    reset_csrf_tokens_after_privilege_change();
 }
 
 function logout_admin(): void

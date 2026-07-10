@@ -20,16 +20,23 @@ assert_true(release_should_exclude('CLAUDE.md', false), 'CLAUDE.md should be exc
 assert_true(release_should_exclude('GEMINI.md', false), 'GEMINI.md should be excluded');
 assert_true(release_should_exclude('audit.md', false), 'audit.md should be excluded');
 assert_true(release_should_exclude('FULL_PROJECT_AUDIT.md', false), 'FULL_PROJECT_AUDIT.md should be excluded');
+assert_true(release_should_exclude('mygallery99_ai_audit_prompt.md', false), 'arbitrary root audit prompts should be excluded');
+assert_true(release_should_exclude('audit-new-policy.md', false), 'arbitrary root audit docs should be excluded by allowlist');
 assert_true(release_should_exclude('provirka.md', false), 'provirka.md should be excluded');
 assert_true(release_should_exclude('docs/AI_SECURITY_AUDIT.md', false), 'AI audit docs should be excluded');
 assert_true(release_should_exclude('docs/AUDIT_PROMPT.md', false), 'audit prompt docs should be excluded');
 assert_true(release_should_exclude('docs/SECURITY_AUDIT.md', false), 'security audit docs should be excluded');
+assert_true(release_should_exclude('docs/new_internal_notes.md', false), 'unknown docs Markdown should be excluded by production allowlist');
 
 // Sessions
 assert_true(release_should_exclude('storage/sessions/sess_123abc', false), 'session files should be excluded');
 assert_true(release_should_exclude('sess_123', false), 'root session files should be excluded');
 assert_true(release_should_exclude('storage/share_ratelimit/limit_abc.json', false), 'share rate-limit runtime files should be excluded');
 assert_true(release_should_exclude('storage/download_locks/abc.lock', false), 'download lock runtime files should be excluded');
+assert_true(release_should_exclude('storage/restore_journal.json', false), 'restore journal should be excluded');
+assert_true(release_should_exclude('storage/media_maintenance.lock', false), 'media maintenance lock should be excluded');
+assert_true(release_should_exclude('public/uploads/.restore-stage-' . str_repeat('a', 32) . '-public-large/photo.jpg', false), 'restore staging should be excluded');
+assert_true(release_should_exclude('storage/.restore-old-' . str_repeat('b', 32) . '-storage-originals/photo.jpg', false), 'restore rollback directories should be excluded');
 
 // Logs and archives
 assert_true(release_should_exclude('storage/logs/error.log', false), 'logs should be excluded');
@@ -62,6 +69,7 @@ assert_true(release_forbidden_reason('mygallery/.github/workflows/build_release.
 assert_true(release_forbidden_reason('mygallery/AGENTS.md') !== null, 'AGENTS.md forbidden');
 assert_true(release_forbidden_reason('mygallery/audit.md') !== null, 'audit.md forbidden');
 assert_true(release_forbidden_reason('mygallery/FULL_PROJECT_AUDIT.md') !== null, 'FULL_PROJECT_AUDIT.md forbidden');
+assert_true(release_forbidden_reason('mygallery/mygallery99_ai_audit_prompt.md') !== null, 'arbitrary root audit prompt forbidden');
 assert_true(release_forbidden_reason('mygallery/provirka.md') !== null, 'provirka.md forbidden');
 assert_true(release_forbidden_reason('mygallery/docs/AI_RELEASE_AUDIT.md') !== null, 'AI release audit doc forbidden');
 assert_true(release_forbidden_reason('mygallery/docs/AUDIT_REPORT.md') !== null, 'audit report doc forbidden');
@@ -72,6 +80,9 @@ assert_true(release_forbidden_reason('mygallery/public/uploads/large/test.jpg') 
 assert_true(release_forbidden_reason('mygallery/storage/originals/test.jpg') !== null, 'storage/originals/test.jpg forbidden');
 assert_true(release_forbidden_reason('mygallery/storage/share_ratelimit/limit_abc.json') !== null, 'share_ratelimit files forbidden');
 assert_true(release_forbidden_reason('mygallery/storage/download_locks/abc.lock') !== null, 'download_locks files forbidden');
+assert_true(release_forbidden_reason('mygallery/storage/restore_journal.json') !== null, 'restore journal forbidden');
+assert_true(release_forbidden_reason('mygallery/storage/media_maintenance.lock') !== null, 'media maintenance lock forbidden');
+assert_true(release_forbidden_reason('mygallery/public/uploads/.restore-stage-' . str_repeat('a', 32) . '-public-large/photo.jpg') !== null, 'restore staging forbidden');
 
 assert_true(release_forbidden_reason('mygallery/public/index.php') === null, 'index.php allowed');
 assert_true(release_forbidden_reason('mygallery/config/database.example.php') === null, 'database.example.php allowed');
@@ -82,3 +93,6 @@ assert_true(release_forbidden_reason('mygallery/storage/share_ratelimit/.gitkeep
 assert_true(release_forbidden_reason('mygallery/storage/download_locks/.gitkeep') === null, 'download_locks/.gitkeep allowed');
 assert_true(release_forbidden_reason('mygallery/public/uploads/large/.htaccess') === null, 'large/.htaccess allowed');
 assert_true(release_forbidden_reason('mygallery/public/uploads/thumbnails/.htaccess') === null, 'thumbnails/.htaccess allowed');
+
+$releaseBuilderSource = (string) file_get_contents(dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'build_release.php');
+assert_true(str_contains($releaseBuilderSource, 'release_verify_zip_streams($output, count($entries))'), 'release builder must reopen and read every finished ZIP stream');

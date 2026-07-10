@@ -95,9 +95,7 @@ if (!valid_share_token($token)) {
     exit;
 }
 
-$stmt = db()->prepare('SELECT * FROM share_links WHERE token = ?');
-$stmt->execute([$token]);
-$share = $stmt->fetch();
+$share = find_share_link_by_token($token);
 
 if (!$share) {
     $errorStatusCode = 404;
@@ -107,7 +105,7 @@ if (!$share) {
     exit;
 }
 
-if (!empty($share['expires_at']) && strtotime($share['expires_at']) < time()) {
+if (share_link_is_expired($share)) {
     $errorStatusCode = 410;
     $errorTitle = 'Посилання застаріло';
     $errorMessage = 'Термін дії цього приватного посилання закінчився.';

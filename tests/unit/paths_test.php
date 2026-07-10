@@ -14,6 +14,31 @@ assert_equals(null, safe_upload_file_path('large', '../file.jpg'), 'Directory tr
 assert_equals(null, safe_storage_file_path('originals', '../file.jpg'), 'Directory traversal should return null for storage paths');
 assert_equals(null, safe_trash_file_path('../file.jpg'), 'Directory traversal should return null for trash paths');
 
+$safePathRoot = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mygallery_path_test_' . bin2hex(random_bytes(6));
+$safePathChild = $safePathRoot . DIRECTORY_SEPARATOR . 'child';
+$externalSentinel = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mygallery_sentinel_' . bin2hex(random_bytes(6));
+assert_true(mkdir($safePathRoot, 0700), 'path test root should be created');
+assert_true(mkdir($safePathChild, 0700), 'path test child should be created');
+assert_true(file_put_contents($safePathChild . DIRECTORY_SEPARATOR . 'normal.txt', 'safe') !== false, 'normal path fixture');
+assert_true(file_put_contents($externalSentinel, 'sentinel') !== false, 'external sentinel fixture');
+try {
+    assert_true(
+        filesystem_path_is_safe_child($safePathChild . DIRECTORY_SEPARATOR . 'normal.txt', $safePathRoot),
+        'normal nested file must pass containment validation'
+    );
+    $linkPath = $safePathChild . DIRECTORY_SEPARATOR . 'external-link';
+    if (@symlink($externalSentinel, $linkPath)) {
+        assert_false(filesystem_path_is_safe_child($linkPath, $safePathRoot), 'symlink to external file must be rejected');
+        unlink($linkPath);
+        assert_true(is_file($externalSentinel), 'external sentinel must survive symlink validation');
+    }
+} finally {
+    unlink($safePathChild . DIRECTORY_SEPARATOR . 'normal.txt');
+    rmdir($safePathChild);
+    rmdir($safePathRoot);
+    unlink($externalSentinel);
+}
+
 assert_equals(null, safe_upload_file_path('large', '/etc/passwd'), 'Absolute paths should return null');
 assert_equals(null, safe_upload_file_path('large', 'C:\\Windows\\System32\\cmd.exe'), 'Windows absolute paths should return null');
 

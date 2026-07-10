@@ -8,6 +8,11 @@ function csrf_token(): string
 {
     start_session();
 
+    $requestToken = $GLOBALS['mygallery_csrf_request_token'] ?? null;
+    if (is_string($requestToken) && $requestToken !== '') {
+        return $requestToken;
+    }
+
     if (!isset($_SESSION['csrf_tokens']) || !is_array($_SESSION['csrf_tokens'])) {
         $_SESSION['csrf_tokens'] = [];
     }
@@ -15,12 +20,16 @@ function csrf_token(): string
     $token = bin2hex(random_bytes(32));
     $_SESSION['csrf_tokens'][] = $token;
 
-    if (count($_SESSION['csrf_tokens']) > 10) {
+    // One token is reused by every form rendered during the current request. A
+    // POST redirects to a fresh page, so one-time consumption still prevents
+    // replay without invalidating early forms while a large page is rendered.
+    while (count($_SESSION['csrf_tokens']) > 64) {
         array_shift($_SESSION['csrf_tokens']);
     }
 
     // Keep legacy single token for backwards compatibility if needed somewhere
     $_SESSION['csrf_token'] = $token;
+    $GLOBALS['mygallery_csrf_request_token'] = $token;
 
     return $token;
 }
@@ -42,6 +51,9 @@ function consume_csrf_token(string $token): bool
                 if (is_string($sessionTokenLegacy) && hash_equals($sessionTokenLegacy, $token)) {
                     unset($_SESSION['csrf_token']);
                 }
+                if (($GLOBALS['mygallery_csrf_request_token'] ?? null) === $token) {
+                    unset($GLOBALS['mygallery_csrf_request_token']);
+                }
                 return true;
             }
         }
@@ -49,10 +61,26 @@ function consume_csrf_token(string $token): bool
 
     if (is_string($sessionTokenLegacy) && $sessionTokenLegacy !== '' && hash_equals($sessionTokenLegacy, $token)) {
         unset($_SESSION['csrf_token']);
+        if (($GLOBALS['mygallery_csrf_request_token'] ?? null) === $token) {
+            unset($GLOBALS['mygallery_csrf_request_token']);
+        }
         return true;
     }
 
     return false;
+}
+
+function reset_csrf_tokens_after_privilege_change(): string
+{
+    start_session();
+    unset($_SESSION['csrf_tokens'], $_SESSION['csrf_token'], $GLOBALS['mygallery_csrf_request_token']);
+
+    $token = bin2hex(random_bytes(32));
+    $_SESSION['csrf_tokens'] = [$token];
+    $_SESSION['csrf_token'] = $token;
+    $GLOBALS['mygallery_csrf_request_token'] = $token;
+
+    return $token;
 }
 
 function verify_csrf(): bool

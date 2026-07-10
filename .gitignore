@@ -15,6 +15,7 @@ storage/sessions/*
 storage/test_sessions/*
 storage/download_locks/*
 storage/share_ratelimit/*
+storage/media_maintenance.lock
 !storage/originals/.gitkeep
 !storage/trash/.gitkeep
 !storage/logs/.gitkeep

@@ -85,35 +85,3 @@ function photo_search_condition(string $search, bool $includeOriginalName, array
 
     return '(photos.title LIKE :search_title OR photos.description LIKE :search_description)';
 }
-
-function valid_share_token(string $token): bool
-{
-    return preg_match('/\A[a-f0-9]{32}\z/', $token) === 1;
-}
-
-function album_zip_cache_fingerprint(int $albumId, string $albumName, string $variant, string $scope, array $photos): string
-{
-    $items = [];
-
-    foreach ($photos as $photo) {
-        $items[] = [
-            'id' => (int) ($photo['id'] ?? 0),
-            'filename' => (string) ($photo['filename'] ?? ''),
-            'original_name' => (string) ($photo['original_name'] ?? ''),
-            'original_sha256' => (string) ($photo['original_sha256'] ?? ''),
-            'file_size' => (int) ($photo['file_size'] ?? 0),
-            'created_at' => (string) ($photo['created_at'] ?? ''),
-            'updated_at' => (string) ($photo['updated_at'] ?? ''),
-        ];
-    }
-
-    $payload = [
-        'album_id' => $albumId,
-        'album_name' => $albumName,
-        'variant' => $variant,
-        'scope' => $scope,
-        'photos' => $items,
-    ];
-
-    return hash('sha256', (string) json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-}

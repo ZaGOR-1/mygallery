@@ -96,7 +96,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
     <form method="post" action="<?= h(url('admin/edit.php')) ?>" class="stacked-form">
         <?= csrf_field() ?>
         <input type="hidden" name="id" value="<?= h((string) $photo['id']) ?>">
-        <input type="hidden" name="updated_at" value="<?= h((string) ($_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['updated_at'] ?? '') : (($photo['updated_at'] ?? '') !== '' ? $photo['updated_at'] : ($photo['created_at'] ?? '')))) ?>">
+        <input type="hidden" name="lock_version" value="<?= h((string) ($_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['lock_version'] ?? '') : ($photo['lock_version'] ?? 1))) ?>">
         <label>
             Назва
             <input type="text" name="title" value="<?= h((string) ($title ?? $photo['title'])) ?>" maxlength="255" required>

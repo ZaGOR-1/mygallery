@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/auth_functions.php';
+require_once __DIR__ . '/maintenance_functions.php';
 require_once __DIR__ . '/file_functions.php';
 require_once __DIR__ . '/gallery_functions.php';
+require_once __DIR__ . '/share_functions.php';
+require_once __DIR__ . '/media_access_functions.php';
+require_once __DIR__ . '/album_zip_functions.php';
 
 function project_root_path(string $path = ''): string
 {
@@ -112,7 +116,7 @@ function validate_runtime_config(): void
 
 function required_php_extensions(): array
 {
-    return ['pdo', 'pdo_mysql', 'gd', 'fileinfo', 'exif', 'mbstring'];
+    return ['pdo', 'pdo_mysql', 'gd', 'fileinfo', 'exif', 'mbstring', 'zip'];
 }
 
 function missing_php_extensions(): array
@@ -120,6 +124,7 @@ function missing_php_extensions(): array
     return array_values(array_filter(
         required_php_extensions(),
         static fn (string $extension): bool => !extension_loaded($extension)
+            || ($extension === 'zip' && !class_exists('ZipArchive'))
     ));
 }
 

@@ -78,7 +78,7 @@ AI-агент має:
 - PHP EXIF;
 - PHP Fileinfo;
 - PHP mbstring;
-- PHP ZipArchive або fallback-реалізацію, якщо вона вже є в `tools/lib/`.
+- PHP ZipArchive як обов’язкову runtime capability для album ZIP/verify/restore; `SimpleZipWriter` лишається внутрішнім writer fallback, але не скасовує вимогу `zip` для readback verification.
 
 Локальний WampServer може мати PHP за шляхом приблизно:
 
@@ -158,6 +158,10 @@ mygallery/
 │       ├── file_functions.php
 │       ├── functions.php
 │       ├── gallery_functions.php
+│       ├── maintenance_functions.php
+│       ├── share_functions.php
+│       ├── media_access_functions.php
+│       ├── album_zip_functions.php
 │       ├── photo_service.php
 │       ├── header.php
 │       └── footer.php
@@ -177,7 +181,9 @@ mygallery/
 │       ├── 2026_06_15_add_original_sha256.sql
 │       ├── 2026_06_15_add_photo_dominant_color.sql
 │       ├── 2026_06_15_add_session_version.sql
-│       └── 2026_06_15_create_share_links.sql
+│       ├── 2026_06_15_create_share_links.sql
+│       ├── 2026_07_10_add_photo_lock_version.sql
+│       └── 2026_07_10_add_share_target_check.sql
 ├── public/
 │   ├── admin/
 │   │   ├── albums.php
@@ -229,6 +235,7 @@ mygallery/
 │   ├── setup.php
 │   ├── verify_backup.php
 │   └── lib/
+│       ├── BackupArchiveValidator.php
 │       └── SimpleZipWriter.php
 ├── tests/
 │   ├── run.php
@@ -300,6 +307,8 @@ PDO::ATTR_EMULATE_PREPARES => false,
 - `albums.is_private` або аналогічне поле приватності;
 - `albums.sort_order`;
 - `photos.dominant_color`;
+- `photos.lock_version` — integer optimistic-lock revision, збільшувати при metadata/tag/album updates;
+- `share_links` має CHECK `chk_share_links_exactly_one_target`: рівно одне з `photo_id`/`album_id` не NULL;
 - FULLTEXT indexes для пошуку, якщо вони є в схемі.
 
 ## Правила для upload і зображень
@@ -434,12 +443,18 @@ Delete має використовувати `storage/trash` і JSON manifest, �
 - Backup містить приватні оригінали, тому його не можна публікувати.
 - Дамп БД має включати `schema_migrations`, інакше після restore міграції перезапустяться по вже мігрованих даних.
 - `tools/verify_backup.php` має перевіряти manifest і файли.
+- Backup format v2 має містити exact allowlist, byte size і SHA-256 для SQL, optional config та кожного media-файлу; `backup.php`, `verify_backup.php` і `restore.php` мають використовувати спільний `tools/lib/BackupArchiveValidator.php`.
+- Backup має тримати `REPEATABLE READ` consistent DB snapshot і exclusive `storage/media_maintenance.lock` до завершення ZIP verification. Усі офіційні media mutations мають брати shared lock.
+- `photo_inventory` у manifest має зв’язувати DB snapshot із canonical original/large/thumbnail та `original_sha256`; missing/orphan media мають abort backup.
+- `.gitkeep` і `.htaccess` не є media payload і не повинні потрапляти в backup manifest; restore зберігає control files цільової інсталяції.
 - `tools/restore.php` має спочатку перевіряти backup, manifest, SQL і дозволені шляхи, а вже потім змінювати БД/файли.
 - `tools/restore.php` застосовує SQL-дамп у транзакції (rollback при збої); тому `tools/backup.php` не має генерувати `LOCK TABLES`/`UNLOCK TABLES` (вони викликають неявний COMMIT у MySQL).
-- Медіа-файли стираються тільки після успішного відновлення БД, а не раніше.
+- Restore має спочатку повністю витягти й перевірити media у same-filesystem staging, потім координувати DB transaction із directory swap та rollback-копіями; не повертай in-place delete/extract.
+- `storage/restore_journal.json` і `schema_migrations` operation marker використовуються для crash recovery. Не видаляй journal або `.restore-stage-*`/`.restore-old-*` вручну; повторний запуск restore має завершити commit або rollback.
 - Restore має бути захищений від path traversal у ZIP entries.
 - `tools/build_release.php` має створювати clean ZIP.
 - Release ZIP не має містити `.git`, `.env`, `config/database.php`, logs, sessions, share-rate-limit files, backups, dist, uploaded media, `temp_*.php`, `*.bak`, `*.tmp`, `*.zip`.
+- Для production Markdown використовуй allowlist: root `README.md`/`CHANGELOG.md`/`ROADMAP.md` і operational docs; довільні AI/audit/prompt Markdown не пакувати.
 
 ## HTML, CSS і JavaScript
 
@@ -516,6 +531,8 @@ node --check public/assets/js/main.js
 ```bash
 php tests/run.php
 ```
+
+CI має запускати tests із `REQUIRE_TEST_DB=1`; skipped DB suites не можна рахувати як passed.
 
 Для проєкту:
 

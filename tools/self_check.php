@@ -270,6 +270,14 @@ function check_gitkeep_files(): void
     }
 }
 
+function check_no_interrupted_restore(): void
+{
+    assert_true(
+        !is_file(storage_path('restore_journal.json')),
+        'Interrupted restore journal found. Re-run tools/restore.php before serving the site.'
+    );
+}
+
 function check_database_schema(): void
 {
     try {
@@ -283,6 +291,20 @@ function check_database_schema(): void
         $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($table));
         assert_true($stmt->fetch() !== false, 'Database table missing: ' . $table);
     }
+
+    $photoColumns = $pdo->query('SHOW COLUMNS FROM photos')->fetchAll(PDO::FETCH_COLUMN);
+    assert_true(in_array('lock_version', $photoColumns, true), 'Database column missing: photos.lock_version');
+
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*)
+        FROM information_schema.TABLE_CONSTRAINTS
+        WHERE CONSTRAINT_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'share_links'
+          AND CONSTRAINT_NAME = 'chk_share_links_exactly_one_target'
+          AND CONSTRAINT_TYPE = 'CHECK'"
+    );
+    $stmt->execute();
+    assert_true((int) $stmt->fetchColumn() === 1, 'Database CHECK missing: chk_share_links_exactly_one_target');
 
     $stmt = $pdo->prepare('SHOW INDEX FROM photos');
     $stmt->execute();
@@ -334,6 +356,7 @@ function run_self_check(): void
     check_writable_directories();
     check_upload_protection_files();
     check_gitkeep_files();
+    check_no_interrupted_restore();
     check_database_schema();
     check_csrf_cases();
     check_orientation_cases();

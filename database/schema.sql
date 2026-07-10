@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS `photos` (
   `exif_json` JSON NULL,
   `original_sha256` CHAR(64) NULL,
   `dominant_color` VARCHAR(7) NULL,
+  `lock_version` INT UNSIGNED NOT NULL DEFAULT 1,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -129,5 +130,9 @@ CREATE TABLE IF NOT EXISTS `share_links` (
   KEY `idx_share_links_photo_id` (`photo_id`),
   KEY `idx_share_links_album_id` (`album_id`),
   CONSTRAINT `fk_share_links_photo_id` FOREIGN KEY (`photo_id`) REFERENCES `photos` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_share_links_album_id` FOREIGN KEY (`album_id`) REFERENCES `albums` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_share_links_album_id` FOREIGN KEY (`album_id`) REFERENCES `albums` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `chk_share_links_exactly_one_target` CHECK (
+    (`photo_id` IS NOT NULL AND `album_id` IS NULL)
+    OR (`photo_id` IS NULL AND `album_id` IS NOT NULL)
+  )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

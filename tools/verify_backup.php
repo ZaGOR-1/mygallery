@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'BackupArchiveValidator.php';
+
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit('Цей файл запускається тільки з консолі.');
@@ -30,83 +32,22 @@ if ($zip->open($zipPath) !== true) {
     exit(1);
 }
 
-$sqlExists = $zip->locateName('mygallery_backup/database.sql') !== false;
-$manifestExists = $zip->locateName('mygallery_backup/BACKUP_MANIFEST.json') !== false;
-
-if (!$sqlExists) {
-    fwrite(STDERR, "Помилка: файл database.sql не знайдено в архіві.\n");
+try {
+    $validated = backup_validate_archive($zip);
+} catch (Throwable $exception) {
+    fwrite(STDERR, "Backup не пройшов перевірку: " . $exception->getMessage() . "\n");
     $zip->close();
     exit(1);
 }
-
-if (!$manifestExists) {
-    fwrite(STDERR, "Помилка: файл BACKUP_MANIFEST.json не знайдено в архіві.\n");
-    $zip->close();
-    exit(1);
-}
-
-$manifestContent = $zip->getFromName('mygallery_backup/BACKUP_MANIFEST.json');
-$manifest = json_decode($manifestContent, true);
-
-if (!is_array($manifest)) {
-    fwrite(STDERR, "Помилка: файл BACKUP_MANIFEST.json не є валідним JSON.\n");
-    $zip->close();
-    exit(1);
-}
-
-if (!isset($manifest['created_at'])) {
-    fwrite(STDERR, "Помилка: у manifest відсутній created_at.\n");
-    $zip->close();
-    exit(1);
-}
-
-$expectedOriginals = (int) ($manifest['files']['storage_originals'] ?? 0);
-$expectedLarge = (int) ($manifest['files']['public_large'] ?? 0);
-$expectedThumbnails = (int) ($manifest['files']['public_thumbnails'] ?? 0);
-
-function count_files_in_zip_dir(ZipArchive $zip, string $dir): int {
-    $count = 0;
-    for ($i = 0; $i < $zip->numFiles; $i++) {
-        $stat = $zip->statIndex($i);
-        if ($stat === false) continue;
-        $name = $stat['name'];
-        if (str_starts_with($name, $dir) && !str_ends_with($name, '/')) {
-            $count++;
-        }
-    }
-    return $count;
-}
-
-$actualOriginals = count_files_in_zip_dir($zip, 'mygallery_backup/storage/originals/');
-$actualLarge = count_files_in_zip_dir($zip, 'mygallery_backup/public/uploads/large/');
-$actualThumbnails = count_files_in_zip_dir($zip, 'mygallery_backup/public/uploads/thumbnails/');
-$hasMismatch = false;
-
-if ($actualOriginals !== $expectedOriginals) {
-    fwrite(STDERR, "Помилка: кількість оригіналів в архіві ($actualOriginals) не збігається з manifest ($expectedOriginals).\n");
-    $hasMismatch = true;
-}
-
-if ($actualLarge !== $expectedLarge) {
-    fwrite(STDERR, "Помилка: кількість large-версій в архіві ($actualLarge) не збігається з manifest ($expectedLarge).\n");
-    $hasMismatch = true;
-}
-
-if ($actualThumbnails !== $expectedThumbnails) {
-    fwrite(STDERR, "Помилка: кількість thumbnails в архіві ($actualThumbnails) не збігається з manifest ($expectedThumbnails).\n");
-    $hasMismatch = true;
-}
-
-if ($hasMismatch) {
-    $zip->close();
-    exit(1);
-}
-
-echo "Перевірка backup архіву успішна.\n";
-echo "Створено: {$manifest['created_at']}\n";
-echo "Оригінали: {$actualOriginals} (expected: {$expectedOriginals})\n";
-echo "Large: {$actualLarge} (expected: {$expectedLarge})\n";
-echo "Thumbnails: {$actualThumbnails} (expected: {$expectedThumbnails})\n";
 
 $zip->close();
+$manifest = $validated['manifest'];
+
+echo "Перевірка backup архіву успішна.\n";
+echo "Формат: " . $manifest['format_version'] . "\n";
+echo "Створено: " . $manifest['created_at'] . "\n";
+echo "Оригінали: " . count($validated['media_entries']['storage_originals']) . "\n";
+echo "Large: " . count($validated['media_entries']['public_large']) . "\n";
+echo "Thumbnails: " . count($validated['media_entries']['public_thumbnails']) . "\n";
+echo "Усі дозволені ZIP streams, розміри та SHA-256 збігаються з manifest.\n";
 exit(0);

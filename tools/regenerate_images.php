@@ -24,6 +24,7 @@ $regenerateLarge = isset($options['all']) || isset($options['large']);
 $regenerateThumbnails = isset($options['all']) || isset($options['thumbnails']);
 $dryRun = isset($options['dry-run']);
 $photoId = isset($options['photo-id']) ? filter_var($options['photo-id'], FILTER_VALIDATE_INT) : null;
+$mediaMaintenanceLock = $dryRun ? null : acquire_media_maintenance_lock(LOCK_SH);
 
 if (!$regenerateLarge && !$regenerateThumbnails) {
     fwrite(STDERR, "Вкажіть --all, --large або --thumbnails.\n");
@@ -151,7 +152,7 @@ foreach ($photos as $photo) {
 
         $dominantColor = get_image_dominant_color($originalPath);
         [$width, $height] = regenerate_photo_dimensions($originalPath, $orientation);
-        $updateStmt = db()->prepare('UPDATE photos SET width = :width, height = :height, dominant_color = :dominant_color WHERE id = :id');
+        $updateStmt = db()->prepare('UPDATE photos SET width = :width, height = :height, dominant_color = :dominant_color, lock_version = lock_version + 1 WHERE id = :id');
         $updateStmt->execute([
             'width' => $width,
             'height' => $height,
@@ -169,4 +170,5 @@ foreach ($photos as $photo) {
 }
 
 echo "\nDone. Processed: {$processed}, updated: {$updated}, skipped: {$skipped}, failed: {$failed}.\n";
+release_media_maintenance_lock($mediaMaintenanceLock);
 exit($failed > 0 ? 1 : 0);

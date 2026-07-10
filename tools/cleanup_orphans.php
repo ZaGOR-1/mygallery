@@ -10,6 +10,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $delete = in_array('--delete', $argv, true);
+$mediaMaintenanceLock = $delete ? acquire_media_maintenance_lock(LOCK_SH) : null;
 
 function display_media_path(string $root, string $folder, string $filename): string
 {
@@ -132,4 +133,5 @@ foreach ($orphans as [$root, $folder, $filename]) {
     }
 }
 
+release_media_maintenance_lock($mediaMaintenanceLock);
 exit($errors > 0 ? 1 : 0);

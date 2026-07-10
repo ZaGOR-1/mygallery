@@ -108,7 +108,7 @@ Preferred audit agents:
 Rules:
 
 - Do not edit application code during audit tasks.
-- During audit tasks, only create or update documentation files under `docs/`.
+- During read-only audit tasks, do not change application code. Write the audit report to the exact path requested by the canonical prompt (currently root `FULL_PROJECT_AUDIT.md` for the full-project audit); supporting audit docs may live under `docs/`.
 - Check `git status --short` before any change. The workspace may contain many uncommitted changes.
 - Do not treat the current working tree as clean unless Git confirms it.
 - Never expose or copy real secrets from `config/database.php`, logs, sessions, backups or private media.

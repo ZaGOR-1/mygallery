@@ -15,10 +15,13 @@ $fileFunctions = file_get_contents($root . DIRECTORY_SEPARATOR . 'app' . DIRECTO
 assert_true(str_contains((string) $fileFunctions, "url_with_query('media.php'"), 'image helpers must generate media.php URLs');
 
 $mediaController = file_get_contents($root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'media.php');
+$mediaAccessFunctions = file_get_contents($root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'media_access_functions.php');
 assert_true(str_contains((string) $mediaController, 'album_is_private'), 'media.php must check album privacy');
 assert_true(str_contains((string) $mediaController, 'is_admin_logged_in()'), 'media.php must allow private media for logged-in admin only');
 assert_true(str_contains((string) $mediaController, 'media_share_token_allows_photo'), 'media.php must validate share tokens for private media');
 assert_true(str_contains((string) $mediaController, 'Cache-Control: private'), 'private media responses must not be public-cacheable');
+assert_true(str_contains((string) $mediaAccessFunctions, 'find_share_link_by_token($token)'), 'media access helper must use the shared token lookup');
+assert_false(str_contains((string) $mediaController, 'function media_share_token_allows_photo'), 'media controller must not redeclare extracted access helpers');
 
 $gallery = file_get_contents($root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'gallery.php');
 $index = file_get_contents($root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'index.php');

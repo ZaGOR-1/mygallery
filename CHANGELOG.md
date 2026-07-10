@@ -1,5 +1,23 @@
 # Changelog
 
+## v6.4.23
+
+- Audit Informational closure (I-01–I-05): reconfirmed the clean production release policy and existing web-security baseline; extracted media maintenance, share access, protected-media access and album ZIP behavior into focused include modules, reducing `public/download_album.php` from 357 to 206 lines and keeping controllers free of helper declarations.
+- Database defense-in-depth: `share_links` now has the idempotently deployed `chk_share_links_exactly_one_target` CHECK, so each token targets exactly one photo or album. Schema, migration, self-check, admin health and DB/static regression coverage all enforce the invariant.
+- CI coverage: GitHub Actions now tests PHP 8.2 and 8.4, requires DB suites, performs backup → verify → restore → self-check, and runs HTTP smoke checks for the homepage, admin login, 404 behavior, CSP and `nosniff`. Full browser, Apache/Nginx, TLS and non-empty production-data validation remain deployment checks.
+
+## v6.4.22
+
+- Audit Medium fixes (M-01–M-08): request-scoped one-time CSRF tokens no longer evict early forms and are rotated across login; sensitive admin/share album ZIP responses are private/no-store while public ZIP caching is explicitly short; backup now combines an exclusive media lifecycle lock, `REPEATABLE READ` consistent DB snapshot and DB-bound photo inventory; cleanup/restore reject symlink/junction targets; `zip` is a required health/self-check capability; test skips are counted separately and fail CI when `REQUIRE_TEST_DB=1`; stale audit/UI/docs rules were synchronized; album ZIP entry names are cross-platform sanitized, byte-limited and case-insensitively deduplicated.
+- Audit Low fixes (L-01–L-06): release Markdown uses a categorical production allowlist; bulk delete performs an all-item preflight and reports exact successful/failed IDs; backup directory/archive permissions are forced to 0700/0600 on Linux; login discards all pre-auth CSRF tokens; photo optimistic locking uses atomic `lock_version` compare/increment via the new idempotent `2026_07_10_add_photo_lock_version.sql` migration; `SimpleZipWriter` detects short writes/flush/close failures and release builds reopen/read every ZIP stream.
+- Tests/CI/docs: added maintenance-lock, symlink containment, backup inventory, ZIP corruption/short-write, cache-header, filename sanitization, bulk result, CSRF privilege-boundary, precise optimistic-lock and runner-semantics coverage. CI now requires its MySQL service and performs a real empty-media backup → verify pass.
+
+## v6.4.21
+
+- Reliability: closed audit findings H-01–H-03 in the backup/restore pipeline. Backup format v2 now excludes media control files, records an exact allowlist plus size and SHA-256 for `database.sql`, optional config and every media file, and automatically reopens and validates the finished ZIP. `verify_backup.php` and `restore.php` use the same strict streaming validator and reject empty SQL, missing/extra/duplicate/unsafe entries, hash/size mismatches and damaged streams.
+- Reliability: restore now extracts and re-hashes all media into same-filesystem staging directories before any database mutation. The restored DML, a durable `schema_migrations` operation marker and atomic directory swaps are coordinated under one DB transaction; old media directories remain available for compensating rollback. A private restore journal lets the next run deterministically finish a committed restore or roll back an uncommitted/interrupted one.
+- Tests/docs: added corrupt-backup and atomic restore recovery regression tests; documented format-v2 compatibility, mandatory verification, staging, recovery and remaining real-DB/manual verification requirements.
+
 ## v6.4.20
 
 - Audit follow-up: closed the current `FULL_PROJECT_AUDIT.md` Medium/Low/Info findings. Added stricter album-cover privacy fallback, one-time CSRF token cleanup for the legacy fallback path, safer album ZIP streaming when cache rename fails, clearer `tools/self_check.php` failure output, stronger GitHub Actions coverage for `beta`/DB/tests/release ZIP content, a repository `.gitattributes` line-ending policy, documentation consistency fixes, and a small helper extraction to `app/includes/gallery_functions.php`.

@@ -17,11 +17,15 @@ This file tracks the implemented features for the MyGallery project.
 - Tags management
 - Lightbox UI
 - CLI tools (setup, self-check with DB validation, cleanup, migrate, backup, verify, restore, recover, runtime cleanup)
+- Backup/restore integrity format v2 (v6.4.21): exact archive allowlist, per-file size/SHA-256, mandatory post-write streaming verification, shared fail-closed verifier, staged media extraction, transactional directory swap with compensating rollback, and journal/DB-marker recovery after interruption.
+- Audit hardening v6.4.22: consistent DB/media backup snapshots with inventory and maintenance locking; symlink-safe cleanup/restore; sensitive ZIP no-store policy and safe cross-platform entries; request-scoped CSRF with login rotation; precise integer optimistic revisions; accurate test skips/required-DB CI; restrictive backup permissions; checked ZIP writes and production-doc allowlisting.
+- Audit informational closure v6.4.23: focused maintenance/share/media/album-ZIP modules; exact-one-target CHECK for share links with health/self-check enforcement; PHP 8.2/8.4 CI matrix; backup→restore round-trip and HTTP security smoke checks.
 - Internal refactoring (Stage 1): Extracted duplicate SQL query building into reusable helper functions
 - Internal refactoring (Stage 2): Separated business logic from HTML into `photo_service.php` (upload, edit, delete, albums)
 - Internal refactoring (Stage 3): Added lightweight CLI tests for core functions and exclusions
 - Internal refactoring (Stage 4): Unified admin form actions, ID reading, and redirect behavior
 - Internal refactoring (Stage 5): Moved gallery/search/share-token and album ZIP fingerprint helpers into `app/includes/gallery_functions.php` to keep the main shared helper file smaller.
+- Internal refactoring (Stage 6): Moved maintenance locking/path containment, share-link lookup, protected-media access and album ZIP helpers into focused include files; endpoint controllers retain request orchestration only.
 - Duplicate Detection: Added `original_sha256` column to `photos` table to prevent uploading the same exact image file twice
 - Shareable Private Links: Generate secure expiring tokens to share a specific photo or entire album via `share.php` without granting admin access
 - CSP-friendly UI cleanup: share/edit/bulk/gallery views use shared CSS classes and `data-confirm` handlers instead of inline styles or inline JavaScript

@@ -98,7 +98,7 @@ $runtimeRows[] = health_row('memory_limit', 'ok', (string) ini_get('memory_limit
 
 $extensionRows = [];
 foreach (required_php_extensions() as $extension) {
-    $loaded = extension_loaded($extension);
+    $loaded = extension_loaded($extension) && ($extension !== 'zip' || class_exists('ZipArchive'));
     $extensionRows[] = health_row('Розширення ' . $extension, $loaded ? 'ok' : 'error', $loaded ? 'enabled' : 'missing (required)');
 }
 $extensionRows[] = health_row('GD WebP support', function_exists('imagewebp') ? 'ok' : 'warn', function_exists('imagewebp') ? 'enabled' : 'missing (no next-gen WebP)');
@@ -129,6 +129,29 @@ try {
         $stmt = db()->query('SELECT COUNT(*) FROM `' . $table . '`');
         $dbRows[] = health_row('Table `' . $table . '`', 'ok', (string) $stmt->fetchColumn() . ' rows');
     }
+
+    $photoColumns = db()->query('SHOW COLUMNS FROM photos')->fetchAll(PDO::FETCH_COLUMN);
+    $dbRows[] = health_row(
+        'Column `photos.lock_version`',
+        in_array('lock_version', $photoColumns, true) ? 'ok' : 'error',
+        in_array('lock_version', $photoColumns, true) ? 'present' : 'missing; run migrations'
+    );
+
+    $constraintStmt = db()->prepare(
+        "SELECT COUNT(*)
+        FROM information_schema.TABLE_CONSTRAINTS
+        WHERE CONSTRAINT_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'share_links'
+          AND CONSTRAINT_NAME = 'chk_share_links_exactly_one_target'
+          AND CONSTRAINT_TYPE = 'CHECK'"
+    );
+    $constraintStmt->execute();
+    $hasShareTargetCheck = (int) $constraintStmt->fetchColumn() === 1;
+    $dbRows[] = health_row(
+        'CHECK `share_links` target',
+        $hasShareTargetCheck ? 'ok' : 'error',
+        $hasShareTargetCheck ? 'exactly one photo/album target' : 'missing; run migrations'
+    );
 
     $invalidCoverCount = invalid_album_cover_count();
     $dbRows[] = health_row(

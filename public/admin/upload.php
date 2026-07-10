@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $fileErrors = [];
 
         foreach ($files as $file) {
-            $fileNameDisplay = basename((string) $file['name']);
+            $fileNameDisplay = safe_original_name((string) $file['name']);
             if ($file['error'] === UPLOAD_ERR_INI_SIZE || $file['error'] === UPLOAD_ERR_FORM_SIZE) {
                 $fileErrors[] = "$fileNameDisplay: Файл завеликий.";
                 continue;

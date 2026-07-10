@@ -43,6 +43,10 @@ MVP персональної фотогалереї на PHP 8.2+, Apache і MyS
 
 ```text
 app/includes/                         спільні PHP-функції, авторизація, CSRF, шаблони
+app/includes/maintenance_functions.php containment і media maintenance lock
+app/includes/share_functions.php      lookup/expiry helpers для share links
+app/includes/media_access_functions.php protected-media authorization helpers
+app/includes/album_zip_functions.php  ZIP naming/cache/cooldown/stream helpers
 config/                               конфігурація застосунку і БД
 database/schema.sql                   повна структура бази для чистої установки
 database/migrations/                  SQL-міграції для вже встановленої бази
@@ -67,12 +71,15 @@ tools/setup.php                       консольне створення пе
 tools/self_check.php                  швидка перевірка структури, модулів і доступів
 tools/build_release.php               збірка чистого release ZIP без приватних файлів
 tools/backup.php                      приватний backup БД і media-файлів
+tools/verify_backup.php               повна size/SHA-256/stream перевірка backup format v2
+tools/restore.php                     staged transactional restore з rollback/recovery journal
 tools/regenerate_images.php           регенерація large/thumbnail із storage/originals
 tools/cleanup_orphans.php             пошук зайвих файлів і відсутніх media-файлів
 tools/migrate_legacy_originals.php    перенесення старих public originals у storage/originals
 tools/recover_trash.php               відновлення або очищення trash manifest-файлів
 VERSION                               поточна версія проєкту
 tools/lib/SimpleZipWriter.php         pure-PHP ZIP writer для release/backup
+tools/lib/BackupArchiveValidator.php  спільна fail-closed validation для backup/verify/restore
 README.md                             основна інструкція запуску
 AGENTS.md                             repo-only правила для AI/Codex-агента
 docs/IMPLEMENTED_FEATURES.md          що вже реалізовано
@@ -114,7 +121,7 @@ php tools/migrate_legacy_originals.php --apply
 ## Встановлення на WampServer у Windows
 
 1. Встановіть WampServer з Apache, PHP 8.2+ і MySQL або MariaDB.
-2. Увімкніть PHP-модулі: `pdo_mysql`, `gd`, `exif`, `fileinfo`, `mbstring`.
+2. Увімкніть PHP-модулі: `pdo_mysql`, `gd`, `exif`, `fileinfo`, `mbstring`, `zip`. У WampServer перевірте, що `php_zip`/`extension=zip` увімкнено саме для Apache і CLI PHP.
 3. Скопіюйте проєкт у папку, наприклад:
 
 ```text
@@ -208,6 +215,8 @@ C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_pho
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_add_album_sort_order.sql"
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_add_album_privacy.sql"
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_add_photo_dominant_color.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_07_10_add_photo_lock_version.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_07_10_add_share_target_check.sql"
 ```
 
 SQL-файли не містять `USE`, тому застосовуються до бази, яку ви явно передали в команді `mysql ... database_name < file.sql`.
@@ -219,10 +228,10 @@ SQL-файли не містять `USE`, тому застосовуються 
 
 ```bash
 sudo apt update
-sudo apt install apache2 mysql-server php php-mysql php-gd php-exif php-mbstring unzip
+sudo apt install apache2 mysql-server php php-mysql php-gd php-exif php-mbstring php-zip unzip
 ```
 
-`fileinfo` зазвичай входить у стандартний PHP-пакет. Перевірте його через `php -m | grep fileinfo`.
+`fileinfo` зазвичай входить у стандартний PHP-пакет. Перевірте capabilities через `php -m | grep -E 'fileinfo|zip'`; `tools/self_check.php` і `/admin/health.php` також позначають відсутній `zip` як помилку.
 
 3. Скопіюйте файли проєкту на сервер, наприклад у `/var/www/mygallery`.
 4. Створіть БД і імпортуйте схему:
@@ -461,7 +470,7 @@ php tools/regenerate_images.php --all --dry-run
 php tools/build_release.php
 ```
 
-На виході буде `dist/mygallery_<VERSION>_release.zip`, наприклад `dist/mygallery_6.4.20_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/share-rate-limit/backup-файли або реальні фото з upload/storage. Production release також не включає внутрішні AI/agent/audit артефакти на кшталт `.agents/`, `.gemini/`, `.github/`, `AGENTS.md`, `audit.md`, `FULL_PROJECT_AUDIT.md`, `provirka.md` і AI/audit docs.
+На виході буде `dist/mygallery_<VERSION>_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/share-rate-limit/backup-файли, restore/maintenance locks або реальні фото з upload/storage. Для Markdown діє production allowlist: у корені лишаються `README.md`, `CHANGELOG.md`, `ROADMAP.md`, а в `docs/` — тільки operational/feature docs. Agent, AI prompt та audit reports до release не входять.
 
 Приватний backup:
 
@@ -470,7 +479,7 @@ php tools/backup.php
 php tools/backup.php --include-config
 ```
 
-Без `--include-config` файл `config/database.php` не потрапляє в backup ZIP. `tools/backup.php` відмовляється створювати backup усередині `public/`, щоб приватний ZIP випадково не став доступним через браузер. Див. також `docs/BACKUP_RESTORE.md`.
+Без `--include-config` файл `config/database.php` не потрапляє в backup ZIP. `tools/backup.php` відмовляється створювати backup усередині `public/`, використовує DB consistent snapshot + media maintenance lock і на Linux вимагає приватні права `0700/0600`. Backup format v2 містить DB photo inventory, точний allowlist, розмір і SHA-256 кожного payload-файлу; щойно створений ZIP автоматично проходить ту саму повну перевірку, яку використовують `verify_backup.php` і `restore.php`. Див. також `docs/BACKUP_RESTORE.md`.
 
 Web health-check доступний після входу в адмінку:
 
@@ -492,6 +501,7 @@ Web health-check доступний після входу в адмінку:
 
 ```bash
 php tools/backup.php
+php tools/verify_backup.php backups/mygallery_backup_YYYYMMDD_HHMMSS.zip
 ```
 
 Для ручного SQL-дампу також можна використати:
@@ -500,7 +510,7 @@ php tools/backup.php
 mysqldump -u gallery_user -p my_photo_gallery > backup.sql
 ```
 
-Backup не можна зберігати всередині `public/` і не можна комітити в Git. `tools/backup.php` блокує `--output` у `public/`, але приватні backup-файли все одно треба зберігати поза `DocumentRoot`. Детальний порядок restore описаний у `docs/BACKUP_RESTORE.md`.
+Backup не можна зберігати всередині `public/` і не можна комітити в Git. `tools/backup.php` блокує `--output` у `public/`, але приватні backup-файли все одно треба зберігати поза `DocumentRoot`. Restore приймає лише поточний format v2, спочатку повністю перевіряє ZIP і staging-копію media, а потім координує транзакцію БД з directory swap та crash-recovery journal. Детальний порядок описаний у `docs/BACKUP_RESTORE.md`.
 
 ## Передача ZIP-архіву
 
@@ -543,6 +553,8 @@ php -d xdebug.mode=off tools/self_check.php
 php -d xdebug.mode=off tests/run.php
 ```
 
+Локально недоступні DB suites показуються окремо як `skipped` і не зараховуються до `passed`. Для CI/обов’язкового DB regression використовуйте `REQUIRE_TEST_DB=1 php tests/run.php`: будь-який skip тоді завершує runner з non-zero. GitHub Actions запускає PHP 8.2/8.4 matrix, MySQL schema/migrations, backup → verify → restore → self-check і базові HTTP security smoke checks. Це не скасовує ручну перевірку Apache/Nginx, TLS, браузера та production filesystem.
+
 ## Документація
 
 Production release ZIP навмисно не включає repo-only audit/AI/agent документи. Вони лишаються в робочому репозиторії для розробки й повторних аудитів.
@@ -551,7 +563,7 @@ Production release ZIP навмисно не включає repo-only audit/AI/a
 - `ROADMAP.md` — майбутні задачі, розбиті за пріоритетами.
 - `docs/BUGS.md` — відомі обмеження і потенційні баги.
 - `docs/BACKUP_RESTORE.md` — порядок backup і restore.
-- Repo-only: `docs/AUDIT_REPORT.md`, `docs/SECURITY_AUDIT.md`, `docs/AUDIT_PROMPT.md`, `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `audit.md`, `FULL_PROJECT_AUDIT.md`, `provirka.md`.
+- Repo-only: `docs/AUDIT_REPORT.md`, `docs/SECURITY_AUDIT.md`, audit prompts/reports, `docs/UI_UX_RECOMMENDATIONS.md`, `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `FULL_PROJECT_AUDIT.md`.
 
 ## Після встановлення
 

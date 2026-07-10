@@ -29,11 +29,17 @@ $maxAgeTrash = 7 * 86400; // 7 days
 $now = time();
 $deletedFiles = 0;
 $freedBytes = 0;
+$unsafeEntries = 0;
 
 echo "Запуск очищення службових файлів виконання (runtime cleanup)...\n";
 
 foreach ($directoriesToClean as $type => $dir) {
     if (!is_dir($dir)) {
+        continue;
+    }
+    if (!filesystem_path_is_safe_child($dir, dirname($dir))) {
+        fwrite(STDERR, "Небезпечна runtime-директорія (symlink/junction): {$dir}\n");
+        $unsafeEntries++;
         continue;
     }
 
@@ -59,7 +65,12 @@ foreach ($directoriesToClean as $type => $dir) {
             continue;
         }
 
-        $path = $fileinfo->getRealPath();
+        $path = $fileinfo->getPathname();
+        if (!filesystem_path_is_safe_child($path, $dir)) {
+            fwrite(STDERR, "Пропущено небезпечний symlink/junction: {$path}\n");
+            $unsafeEntries++;
+            continue;
+        }
         $mtime = $fileinfo->getMTime();
         
         if (($now - $mtime) > $maxAge) {
@@ -98,6 +109,11 @@ if (!$apply) {
     echo "\nОчищення успішно завершено.\n";
     echo "Загалом видалено файлів: $deletedFiles\n";
     echo "Звільнено місця: " . round($freedBytes / 1024 / 1024, 2) . " MB\n";
+}
+
+if ($unsafeEntries > 0) {
+    fwrite(STDERR, "Виявлено небезпечних filesystem entries: {$unsafeEntries}. Їх не змінено.\n");
+    exit(1);
 }
 
 exit(0);

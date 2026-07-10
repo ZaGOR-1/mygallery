@@ -39,6 +39,19 @@ function release_relative_path(string $root, string $path): string
 function release_internal_artifact_reason(string $relative): ?string
 {
     $relative = trim(str_replace('\\', '/', $relative), '/');
+    $rootProductionDocs = ['README.md', 'CHANGELOG.md', 'ROADMAP.md'];
+    $docsProductionDocs = ['docs/BACKUP_RESTORE.md', 'docs/BUGS.md', 'docs/IMPLEMENTED_FEATURES.md'];
+
+    if (!str_contains($relative, '/')
+        && str_ends_with(strtolower($relative), '.md')
+        && !in_array($relative, $rootProductionDocs, true)) {
+        return 'root Markdown не входить до production-doc allowlist';
+    }
+    if (str_starts_with($relative, 'docs/')
+        && str_ends_with(strtolower($relative), '.md')
+        && !in_array($relative, $docsProductionDocs, true)) {
+        return 'docs Markdown не входить до production-doc allowlist';
+    }
 
     $checks = [
         '#(^|/)\.(agents|codex|cursor|gemini|github)(/|$)#i' => 'внутрішні AI/dev-конфігурації не можна додавати в production release ZIP',
@@ -91,6 +104,12 @@ function release_should_exclude(string $relative, bool $isDir): bool
     }
 
     if ($relative === 'config/database.php' || $relative === '.env') {
+        return true;
+    }
+
+    if ($relative === 'storage/restore_journal.json'
+        || $relative === 'storage/media_maintenance.lock'
+        || preg_match('#(^|/)\.restore-(?:stage|old|discard)-[a-f0-9]{32}-#', $relative) === 1) {
         return true;
     }
 
@@ -166,6 +185,9 @@ function release_forbidden_reason(string $entry): ?string
         '#(^|/)config/database\.php$#' => 'config/database.php містить локальні доступи',
         '#(^|/)\.env$#' => '.env містить секрети',
         '#(^|/)temp_[^/]*\.php$#i' => 'тимчасові PHP-міграції не можна додавати в release ZIP',
+        '#(^|/)storage/restore_journal\.json$#' => 'restore journal не можна додавати в release ZIP',
+        '#(^|/)storage/media_maintenance\.lock$#' => 'media maintenance lock не можна додавати в release ZIP',
+        '#(^|/)\.restore-(stage|old|discard)-[a-f0-9]{32}-#' => 'restore staging/rollback media не можна додавати в release ZIP',
         '#(^|/)sess_[^/]*$#' => 'session-файли не можна додавати в ZIP',
         '#\.(log|bak|backup|tmp)$#i' => 'тимчасові/лог/backup-файли не можна додавати в ZIP',
         '#(^|/)storage/originals/.*\.(jpe?g|png|webp|avif)$#i' => 'оригінали фото не можна додавати в release ZIP',
@@ -188,6 +210,48 @@ function release_forbidden_reason(string $entry): ?string
     }
 
     return null;
+}
+
+function release_verify_zip_streams(string $path, int $expectedEntries): void
+{
+    $archive = new ZipArchive();
+    if ($archive->open($path) !== true) {
+        throw new RuntimeException('Створений release ZIP неможливо повторно відкрити.');
+    }
+
+    try {
+        if ($archive->numFiles !== $expectedEntries) {
+            throw new RuntimeException('Кількість entries у release ZIP не збігається з builder inventory.');
+        }
+        for ($index = 0; $index < $archive->numFiles; $index++) {
+            $name = $archive->getNameIndex($index, ZipArchive::FL_UNCHANGED);
+            if (!is_string($name)) {
+                throw new RuntimeException('Не вдалося прочитати назву release ZIP entry.');
+            }
+            if (str_ends_with($name, '/')) {
+                continue;
+            }
+            $stream = $archive->getStream($name);
+            if ($stream === false) {
+                throw new RuntimeException('Не вдалося відкрити release ZIP entry: ' . $name);
+            }
+            try {
+                while (!feof($stream)) {
+                    $chunk = fread($stream, 1024 * 1024);
+                    if ($chunk === false) {
+                        throw new RuntimeException('Помилка читання release ZIP entry: ' . $name);
+                    }
+                    if ($chunk === '' && !feof($stream)) {
+                        throw new RuntimeException('Передчасне завершення release ZIP entry: ' . $name);
+                    }
+                }
+            } finally {
+                fclose($stream);
+            }
+        }
+    } finally {
+        $archive->close();
+    }
 }
 
 if (defined('TESTING_RELEASE_EXCLUSIONS')) {
@@ -254,8 +318,19 @@ foreach ($entries as $entry) {
 
 $zip->finish();
 
+try {
+    release_verify_zip_streams($output, count($entries));
+} catch (Throwable $exception) {
+    if (is_file($output)) {
+        unlink($output);
+    }
+    fwrite(STDERR, "Release verification failed: " . $exception->getMessage() . "\n");
+    exit(1);
+}
+
 $size = filesize($output);
 echo "Release ZIP створено: {$output}\n";
 echo "Entries: " . count($entries) . "\n";
 echo "Size: " . ($size === false ? 'unknown' : $size . ' bytes') . "\n";
 echo "Перевірка небезпечних файлів: OK\n";
+echo "Перевірка ZIP streams: OK\n";

@@ -1,71 +1,36 @@
 # Security Audit
 
-Historical security-аудит старішої версії. Поточний стан потрібно звіряти з `FULL_PROJECT_AUDIT.md`, `VERSION` і фактичними перевірками.
+Актуально для MyGallery 6.4.23. Детальні finding IDs і reproduction scenarios наведені у кореневому `FULL_PROJECT_AUDIT.md`.
 
-## 1. Executive Summary
+## Поточний code status
 
-Проєкт має зрілий базовий рівень безпеки для MVP персональної фотогалереї: авторизація адміністратора, CSRF, PDO prepared statements, приватне зберігання оригіналів, JPEG-only upload, release exclusions і CLI-only maintenance tools уже реалізовані.
+Під час аудиту 2026-07-10 Critical findings не знайдено. High H-01–H-03 закриті у v6.4.21, Medium M-01–M-08 і Low L-01–L-06 — у v6.4.22, Informational I-01–I-05 закриті або підтверджені у v6.4.23. Це не замінює перевірку конкретної production-конфігурації.
 
-Критичних або high security-проблем на поточному етапі не зафіксовано. Medium issues з останнього повного аудиту закриті: тимчасовий migration/debug script видалено, share links отримали строк дії, CSP-несумісні inline styles/scripts прибрано з вказаних сторінок, документацію синхронізовано.
+| Область | Стан коду |
+|---|---|
+| SQL injection | PDO native prepared statements; dynamic sort/filter values мають whitelist |
+| XSS | output проходить `h()`/`htmlspecialchars(ENT_QUOTES)`; UI actions не покладаються на inline handlers |
+| Auth/session | password hashing, rate limit, session ID regeneration, idle timeout, DB freshness check і `session_version` |
+| CSRF | request-scoped one-time token, replay rejection, parallel-tab history і повна privilege-boundary rotation |
+| Upload/media | JPEG MIME/image checks, random names, private originals, protected derivatives через `media.php` |
+| Private albums/share | explicit privacy filters, high-entropy expiring/revocable tokens, private media no-store, exact-one-target DB CHECK |
+| Album ZIP | originals лише адміну; share/admin no-store; generation lock; safe single-segment entry names |
+| Backup/restore | exact manifest/hash validation, consistent snapshot/inventory, restrictive permissions, staged swap/rollback/recovery |
+| Filesystem tools | path allowlists та symlink/junction containment перед destructive operations |
+| Release | secret/media/runtime exclusions, production-doc allowlist, checked writer і full ZIP stream readback |
 
-## 2. Severity Summary
+## Обов’язковий production checklist
 
-| Severity | Count |
-|---|---:|
-| Critical | 0 |
-| High | 0 |
-| Medium | 0 |
-| Low | 6 |
-| Info | 7 |
+- `APP_ENV=production`, `APP_DEBUG=false`, HTTPS `APP_URL`;
+- `DocumentRoot` тільки `public/`, окремі Nginx deny rules замість покладання на `.htaccess`;
+- окремий non-root DB user та застосовані всі migrations;
+- `php tools/self_check.php` проходить, включно з `zip`, `photos.lock_version` і `chk_share_links_exactly_one_target`;
+- `REQUIRE_TEST_DB=1 php tests/run.php` проходить без skips;
+- backup ZIP зберігається поза web root із 0700/0600 або stricter permissions;
+- виконаний disposable backup → verify → restore test і звірені SHA-256 originals;
+- вручну перевірені login/rate-limit/CSRF, private/share access, headers, upload/trash/download flows;
+- release створений тільки через `php tools/build_release.php` і додатково перевірений на цільовому сервері.
 
-## 3. Security Checklist Results
+## Verdict
 
-| Area | Status | Notes |
-|---|---|---|
-| SQL Injection | Pass | Критичні запити використовують PDO prepared statements і whitelist-підходи для сортування/фільтрів. |
-| XSS | Pass with maintenance notes | Вивід екранується через `h()`. Inline UI у medium-scope файлах прибрано для кращої CSP-сумісності. |
-| CSRF | Pass | POST-дії в адмінці захищені CSRF-токеном. |
-| Auth | Pass | Є session regeneration після login, rate limiter і session version invalidation. |
-| Uploads | Pass | Дозволено JPEG, MIME перевіряється через `finfo`, додатково використовується `getimagesize()`, імена файлів випадкові. |
-| File Access | Pass | Оригінали зберігаються в `storage/originals`, public uploads не виконують PHP. |
-| Share Links | Improved | Нові photo/album share links мають строк дії з дефолтом 30 днів; безстроковий режим лишився явним вибором. |
-| Release ZIP | Pass | Release builder виключає `.git`, `config/database.php`, logs, sessions, backup/tmp files і реальні фото. |
-| Production Config | Needs operator checklist | Для production потрібні HTTPS, `APP_ENV=production`, `APP_DEBUG=false`, окремий DB user і правильний `DocumentRoot public/`. |
-
-## 4. Fixed Medium Security/Hardening Items
-
-- `temp_migrate.php` видалено з кореня репозиторію.
-- `public/admin/share.php` записує `expires_at` для нових share links.
-- Форми photo/album share links мають вибір строку дії: 1 день, 7 днів, 30 днів, 90 днів або без строку.
-- `public/admin/edit.php`, `public/admin/bulk_edit.php`, `public/gallery.php` і `public/share.php` більше не використовують inline `style`/`onclick`.
-- README, AGENTS, CHANGELOG і audit docs приведено до актуального стану.
-
-## 5. Remaining Low-Risk Work
-
-Залишкові low issues описані у `FULL_PROJECT_AUDIT.md`. Вони не блокують MVP, але корисні перед production-polish:
-
-- дружні error layouts для `public/share.php`;
-- кращий UX для CSRF failure у bulk edit;
-- додаткова existence validation у `public/admin/share.php`;
-- посилена path validation у `tools/restore.php`;
-- cleanup для `storage/test_sessions`;
-- подальше підтримання audit docs без абсолютних локальних посилань.
-
-## 6. Production Checklist
-
-Перед production:
-
-- `APP_ENV=production`;
-- `APP_DEBUG=false`;
-- `APP_URL=https://...`;
-- HTTPS увімкнено;
-- Apache/Nginx `DocumentRoot` вказує тільки на `public/`;
-- `storage/`, `config/`, `tools/` і `database/` не доступні напряму через браузер;
-- БД працює під окремим користувачем, не `root`;
-- release ZIP створено через `php tools/build_release.php`;
-- backup ZIP не зберігається в `public/`;
-- запущено `php tools/self_check.php`.
-
-## 7. Final Verdict
-
-Security-стан нормальний для MVP і локального використання. Для production потрібно виконати checklist вище та поступово закрити low issues з `FULL_PROJECT_AUDIT.md`.
+Усі відомі code findings аудиту 2026-07-10 закриті або, для позитивних I-01/I-02, підтверджені regression-перевірками. Production readiness є умовною до фактичного проходження checklist у цільовому LAMP/HTTPS середовищі.

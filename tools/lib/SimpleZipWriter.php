@@ -7,14 +7,19 @@ final class SimpleZipWriter
     /** @var resource */
     private $handle;
 
+    private bool $closed = false;
+
     /** @var array<int, array<string, int|string>> */
     private array $entries = [];
 
-    public function __construct(private readonly string $zipPath)
+    public function __construct(private readonly string $zipPath, ?int $fileMode = null)
     {
-        $dir = dirname($zipPath);
-        if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
-            throw new RuntimeException('Не вдалося створити папку для ZIP: ' . $dir);
+        $isStreamUrl = preg_match('/\A[a-z][a-z0-9+.-]*:\/\//i', $zipPath) === 1;
+        if (!$isStreamUrl) {
+            $dir = dirname($zipPath);
+            if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
+                throw new RuntimeException('Не вдалося створити папку для ZIP: ' . $dir);
+            }
         }
 
         $handle = fopen($zipPath, 'wb');
@@ -23,6 +28,19 @@ final class SimpleZipWriter
         }
 
         $this->handle = $handle;
+        if (!$isStreamUrl && $fileMode !== null && PHP_OS_FAMILY !== 'Windows' && !chmod($zipPath, $fileMode)) {
+            fclose($this->handle);
+            $this->closed = true;
+            throw new RuntimeException('Не вдалося встановити безпечні права ZIP-файла: ' . $zipPath);
+        }
+    }
+
+    public function __destruct()
+    {
+        if (!$this->closed && is_resource($this->handle)) {
+            fclose($this->handle);
+            $this->closed = true;
+        }
     }
 
     public function addDirectory(string $entryName): void
@@ -67,7 +85,7 @@ final class SimpleZipWriter
         }
 
         foreach ($this->entries as $entry) {
-            fwrite($this->handle, pack(
+            $this->writeAll(pack(
                 'VvvvvvvVVVvvvvvVV',
                 0x02014b50,
                 0x031e,
@@ -87,7 +105,7 @@ final class SimpleZipWriter
                 (int) $entry['external_attr'],
                 (int) $entry['offset']
             ));
-            fwrite($this->handle, (string) $entry['name']);
+            $this->writeAll((string) $entry['name']);
         }
 
         $centralDirEnd = ftell($this->handle);
@@ -98,7 +116,7 @@ final class SimpleZipWriter
         $centralDirSize = $centralDirEnd - $centralDirOffset;
         $count = count($this->entries);
 
-        fwrite($this->handle, pack(
+        $this->writeAll(pack(
             'VvvvvVVv',
             0x06054b50,
             0,
@@ -110,7 +128,13 @@ final class SimpleZipWriter
             0
         ));
 
-        fclose($this->handle);
+        if (!fflush($this->handle)) {
+            throw new RuntimeException('Не вдалося flush ZIP-файл.');
+        }
+        if (!fclose($this->handle)) {
+            throw new RuntimeException('Не вдалося закрити ZIP-файл.');
+        }
+        $this->closed = true;
     }
 
     private function addRawEntry(string $entryName, string $data, bool $directory, int $mtime): void
@@ -130,7 +154,7 @@ final class SimpleZipWriter
         $size = strlen($data);
         $crc = $directory ? 0 : (int) hexdec(hash('crc32b', $data));
 
-        fwrite($this->handle, pack(
+        $this->writeAll(pack(
             'VvvvvvVVVvv',
             0x04034b50,
             20,
@@ -144,9 +168,9 @@ final class SimpleZipWriter
             strlen($entryName),
             0
         ));
-        fwrite($this->handle, $entryName);
+        $this->writeAll($entryName);
         if ($data !== '') {
-            fwrite($this->handle, $data);
+            $this->writeAll($data);
         }
 
         $this->entries[] = [
@@ -182,5 +206,19 @@ final class SimpleZipWriter
         }
 
         return $entryName;
+    }
+
+    private function writeAll(string $data): void
+    {
+        $length = strlen($data);
+        $offset = 0;
+
+        while ($offset < $length) {
+            $written = fwrite($this->handle, substr($data, $offset));
+            if ($written === false || $written === 0) {
+                throw new RuntimeException('Short write під час створення ZIP-файла.');
+            }
+            $offset += $written;
+        }
     }
 }
