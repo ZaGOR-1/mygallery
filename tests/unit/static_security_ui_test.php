@@ -30,14 +30,29 @@ assert_true(str_contains($publicHtaccess, 'webp|avif'), 'public/.htaccess cache 
 assert_true(str_contains($uploadsHtaccess, 'webp|avif'), 'public/uploads/.htaccess cache rules must include WebP/AVIF');
 
 $share = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'share.php');
+$shareFunctions = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'share_functions.php');
 assert_true(str_contains($share, 'valid_share_token($token)'), 'share.php must validate token format before DB lookup');
 assert_true(str_contains($share, 'X-Robots-Tag: noindex, noarchive'), 'share.php must send noindex robots header');
-assert_true(str_contains($share, 'Share rate limit storage is not writable'), 'share.php must log share rate-limit storage failures');
-assert_true(str_contains($share, 'if (is_production())'), 'share.php must fail closed for rate-limit storage failures in production');
-assert_true(str_contains($share, 'Служба приватних посилань тимчасово недоступна'), 'share.php must return a temporary-unavailable error when production rate-limit storage is unavailable');
+assert_true(str_contains($shareFunctions, 'Share rate limit storage is not writable'), 'share limiter must log storage failures');
+assert_true(str_contains($shareFunctions, 'if (is_production())'), 'share limiter must fail closed for storage failures in production');
+assert_true(str_contains($shareFunctions, 'Служба приватних посилань тимчасово недоступна'), 'share limiter must return a temporary-unavailable production error');
 
 $header = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php');
 assert_true(str_contains($header, '<meta name="robots"'), 'header.php must support robots meta tag');
+assert_true(str_contains($header, 'class="skip-link"') && str_contains($header, 'id="main-content"'), 'shared layout must provide a keyboard skip link');
+assert_true(str_contains($header, 'id="app-live-status"') && str_contains($header, 'aria-live="polite"'), 'shared layout must provide a screen-reader live status region');
+assert_true(str_contains($header, "role=\"<?= (\$message['type'] ?? '') === 'error' ? 'alert' : 'status' ?>\""), 'flash messages must expose alert/status semantics');
+
+assert_true(str_contains($css, '@media (prefers-reduced-motion: reduce)'), 'CSS must honor reduced-motion preferences');
+assert_true(str_contains($mainJs, "button.textContent = 'Не вдалося скопіювати'"), 'clipboard failures must be visible on the triggering control');
+assert_true(str_contains($mainJs, "request.upload.addEventListener('progress'"), 'upload UI must report actual byte-transfer progress');
+$uploadController = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'admin' . DIRECTORY_SEPARATOR . 'upload.php');
+assert_true(str_contains($uploadController, 'id="upload-progress-bar"') && str_contains($uploadController, 'HTTP_X_REQUESTED_WITH'), 'upload endpoint/UI must support progressive XHR enhancement');
+foreach (['health.php', 'stats.php'] as $tablePage) {
+    $tableMarkup = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'admin' . DIRECTORY_SEPARATOR . $tablePage);
+    assert_false((bool) preg_match('/<th(?=\s|>)(?![^>]*\bscope=)/i', $tableMarkup), $tablePage . ' table headers must define scope');
+    assert_true(str_contains($tableMarkup, '<caption'), $tablePage . ' tables must have captions');
+}
 
 $cleanup = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'cleanup_runtime.php');
 assert_true(str_contains($cleanup, 'share_ratelimit'), 'cleanup_runtime.php must clean share_ratelimit');

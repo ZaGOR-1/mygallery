@@ -162,6 +162,7 @@ mygallery/
 │       ├── share_functions.php
 │       ├── media_access_functions.php
 │       ├── album_zip_functions.php
+│       ├── tag_service.php
 │       ├── photo_service.php
 │       ├── header.php
 │       └── footer.php
@@ -236,6 +237,7 @@ mygallery/
 │   ├── verify_backup.php
 │   └── lib/
 │       ├── BackupArchiveValidator.php
+│       ├── SafeCliZipOutput.php
 │       └── SimpleZipWriter.php
 ├── tests/
 │   ├── run.php
@@ -367,6 +369,8 @@ PDO::ATTR_EMULATE_PREPARES => false,
 - Share link на видалене фото/альбом має коректно давати 404 або відповідну помилку.
 - `public/admin/share.php` завжди має бути тільки за `require_admin()` і CSRF для POST.
 - `public/share.php` не має давати доступ до адмін-функцій або приватних оригіналів.
+- Public album ZIP generation має перевіряти deadline під час кожного streaming/readback chunk; не покладайся на перевірку часу лише перед deferred `ZipArchive::close()`.
+- Створення нового album під час photo edit має відбуватися тільки після row-lock/revision check у тій самій transaction; cover update блокує photo перед album і повторно перевіряє membership.
 
 ## Теги
 
@@ -444,15 +448,19 @@ Delete має використовувати `storage/trash` і JSON manifest, �
 - Дамп БД має включати `schema_migrations`, інакше після restore міграції перезапустяться по вже мігрованих даних.
 - `tools/verify_backup.php` має перевіряти manifest і файли.
 - Backup format v2 має містити exact allowlist, byte size і SHA-256 для SQL, optional config та кожного media-файлу; `backup.php`, `verify_backup.php` і `restore.php` мають використовувати спільний `tools/lib/BackupArchiveValidator.php`.
-- Backup має тримати `REPEATABLE READ` consistent DB snapshot і exclusive `storage/media_maintenance.lock` до завершення ZIP verification. Усі офіційні media mutations мають брати shared lock.
+- Backup має тримати `REPEATABLE READ` consistent DB snapshot і exclusive `storage/media_maintenance.lock` до завершення ZIP verification. Короткі web media mutations беруть shared lock; destructive global cleanup/regenerate/recover tools обов’язково беруть exclusive lock.
 - `photo_inventory` у manifest має зв’язувати DB snapshot із canonical original/large/thumbnail та `original_sha256`; missing/orphan media мають abort backup.
 - `.gitkeep` і `.htaccess` не є media payload і не повинні потрапляти в backup manifest; restore зберігає control files цільової інсталяції.
 - `tools/restore.php` має спочатку перевіряти backup, manifest, SQL і дозволені шляхи, а вже потім змінювати БД/файли.
 - `tools/restore.php` застосовує SQL-дамп у транзакції (rollback при збої); тому `tools/backup.php` не має генерувати `LOCK TABLES`/`UNLOCK TABLES` (вони викликають неявний COMMIT у MySQL).
 - Restore має спочатку повністю витягти й перевірити media у same-filesystem staging, потім координувати DB transaction із directory swap та rollback-копіями; не повертай in-place delete/extract.
+- Restore до extraction має обмежувати cumulative uncompressed bytes/compression ratio, перевіряти вільне місце та встановлювати 0700/0600 для private originals staging (0750/0640 для derivatives).
 - `storage/restore_journal.json` і `schema_migrations` operation marker використовуються для crash recovery. Не видаляй journal або `.restore-stage-*`/`.restore-old-*` вручну; повторний запуск restore має завершити commit або rollback.
 - Restore має бути захищений від path traversal у ZIP entries.
 - `tools/build_release.php` має створювати clean ZIP.
+- Release builder має fail-closed зупинятися без Git metadata, безпечно prune-ити excluded дерева, відхиляти symlink/junction path escapes і після закриття ZIP повторно звіряти payload із embedded SHA-256 inventory.
+- Release builder має зберігати stable entry order/modes/timestamps (`SOURCE_DATE_EPOCH` або reachable commit epoch) і публікувати `.sha256` та `.provenance.json` sidecars; два builds одного clean commit перевіряються byte-for-byte.
+- Офіційні backup/release tools використовують streaming/ZIP64-capable `ZipArchive` і `SafeCliZipOutput.php`; не повертай довільний overwrite через `--output`.
 - Release ZIP не має містити `.git`, `.env`, `config/database.php`, logs, sessions, share-rate-limit files, backups, dist, uploaded media, `temp_*.php`, `*.bak`, `*.tmp`, `*.zip`.
 - Для production Markdown використовуй allowlist: root `README.md`/`CHANGELOG.md`/`ROADMAP.md` і operational docs; довільні AI/audit/prompt Markdown не пакувати.
 
@@ -469,6 +477,7 @@ Delete має використовувати `storage/trash` і JSON manifest, �
 - Фільтри мають зберігатися під час пагінації.
 - Для зображень використовуй `loading="lazy"`, якщо доречно.
 - Додавай коректні `alt`-атрибути.
+- Shared layout зберігає skip link, live status region і reduced-motion behavior; async upload progress є progressive enhancement, звичайний POST без JavaScript не ламати.
 
 ## Документація
 

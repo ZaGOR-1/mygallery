@@ -100,6 +100,44 @@ function restore_build_mappings(string $operationId, ?array $targets = null): ar
     return $mappings;
 }
 
+/**
+ * @param array<string, array{target: string, stage: string, old: string, old_moved: bool, new_installed: bool}> $mappings
+ * @param array<string, int> $mediaBytes
+ */
+function restore_require_staging_capacity(array $mappings, array $mediaBytes, int $minimumFreeBytes): void
+{
+    $volumes = [];
+    foreach ($mappings as $group => $mapping) {
+        $parent = dirname($mapping['target']);
+        $stat = @stat($parent);
+        $device = is_array($stat) && isset($stat['dev'])
+            ? 'dev:' . (string) $stat['dev']
+            : 'path:' . strtolower((string) preg_replace('/[\\\/].*$/', '', restore_normalize_path($parent)));
+        if (!isset($volumes[$device])) {
+            $free = @disk_free_space($parent);
+            if (!is_float($free) && !is_int($free)) {
+                throw new RuntimeException('Не вдалося визначити вільне місце для restore staging: ' . $parent);
+            }
+            $volumes[$device] = ['free' => (float) $free, 'required' => 0, 'path' => $parent];
+        }
+        $bytes = (int) ($mediaBytes[$group] ?? 0);
+        if ($bytes < 0 || $bytes > PHP_INT_MAX - $volumes[$device]['required']) {
+            throw new RuntimeException('Некоректний сукупний media size для restore staging.');
+        }
+        $volumes[$device]['required'] += $bytes;
+    }
+
+    foreach ($volumes as $volume) {
+        $requiredWithReserve = $volume['required'] + max(0, $minimumFreeBytes);
+        if ($volume['free'] < $requiredWithReserve) {
+            throw new RuntimeException(
+                'Недостатньо вільного місця для restore staging у ' . $volume['path']
+                . ': потрібно щонайменше ' . $requiredWithReserve . ' bytes.'
+            );
+        }
+    }
+}
+
 function restore_remove_generated_tree(string $path, string $expectedParent): void
 {
     if (!file_exists($path) && !is_link($path)) {
@@ -141,20 +179,43 @@ function restore_remove_generated_tree(string $path, string $expectedParent): vo
  */
 function restore_write_journal(string $journalPath, string $operationId, string $marker, array $mappings): void
 {
+    if (is_link($journalPath)) {
+        throw new RuntimeException('Restore journal не може бути symbolic link: ' . $journalPath);
+    }
+    if (!ensure_private_directory(dirname($journalPath))) {
+        throw new RuntimeException('Не вдалося підготувати приватну директорію restore journal: ' . dirname($journalPath));
+    }
+
     $payload = json_encode([
         'version' => 1,
         'operation_id' => $operationId,
         'database_marker' => $marker,
         'mappings' => $mappings,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-    $temporary = $journalPath . '.tmp';
-    $written = file_put_contents($temporary, $payload, LOCK_EX);
+    $temporary = tempnam(dirname($journalPath), '.restore-journal-');
+    if (!is_string($temporary)) {
+        throw new RuntimeException('Не вдалося створити тимчасовий restore journal: ' . $journalPath);
+    }
+    if (is_link($temporary) || !restore_same_path(dirname($temporary), dirname($journalPath))) {
+        @unlink($temporary);
+        throw new RuntimeException('Тимчасовий restore journal створено поза дозволеною директорією: ' . $temporary);
+    }
 
-    if ($written !== strlen($payload) || !rename($temporary, $journalPath)) {
-        if (is_file($temporary)) {
-            unlink($temporary);
+    try {
+        $written = private_file_put_contents($temporary, $payload, LOCK_EX);
+        if ($written !== strlen($payload)) {
+            throw new RuntimeException('Не вдалося повністю записати restore journal: ' . $journalPath);
         }
-        throw new RuntimeException('Не вдалося записати restore journal: ' . $journalPath);
+        if (is_link($journalPath) || !rename($temporary, $journalPath)) {
+            throw new RuntimeException('Не вдалося атомарно встановити restore journal: ' . $journalPath);
+        }
+        if (!enforce_private_file_permissions($journalPath)) {
+            throw new RuntimeException('Не вдалося встановити 0600 для restore journal: ' . $journalPath);
+        }
+    } finally {
+        if (is_file($temporary) || is_link($temporary)) {
+            @unlink($temporary);
+        }
     }
 }
 
@@ -173,14 +234,27 @@ function restore_prepare_staging(array $mappings): void
         if (file_exists($mapping['stage']) || file_exists($mapping['old'])) {
             throw new RuntimeException('Restore staging path уже існує: ' . $mapping['stage']);
         }
-        if (!mkdir($mapping['stage'], 0750)) {
+        $directoryMode = $group === 'storage_originals' ? private_directory_mode() : shared_directory_mode();
+        if (!mkdir($mapping['stage'], $directoryMode)) {
             throw new RuntimeException('Не вдалося створити restore staging: ' . $mapping['stage']);
+        }
+        if (PHP_OS_FAMILY !== 'Windows' && !chmod($mapping['stage'], $directoryMode)) {
+            throw new RuntimeException('Не вдалося встановити безпечні права restore staging: ' . $mapping['stage']);
         }
 
         foreach (['.gitkeep', '.htaccess'] as $controlFile) {
             $source = $target . DIRECTORY_SEPARATOR . $controlFile;
             if (is_file($source) && !copy($source, $mapping['stage'] . DIRECTORY_SEPARATOR . $controlFile)) {
                 throw new RuntimeException('Не вдалося скопіювати control file у restore staging: ' . $source);
+            }
+            $copied = $mapping['stage'] . DIRECTORY_SEPARATOR . $controlFile;
+            if (is_file($copied)) {
+                $permissionOk = $group === 'storage_originals'
+                    ? enforce_private_file_permissions($copied)
+                    : enforce_shared_file_permissions($copied);
+                if (!$permissionOk) {
+                    throw new RuntimeException('Не вдалося встановити права restore control file: ' . $copied);
+                }
             }
         }
         if (($group === 'public_large' || $group === 'public_thumbnails')
@@ -255,6 +329,12 @@ function restore_extract_to_staging(ZipArchive $zip, array $mediaEntries, array 
             if ($written !== $descriptor['size'] || !hash_equals($descriptor['sha256'], hash_final($hash))) {
                 throw new RuntimeException('Staging file не збігається з manifest: ' . $descriptor['entry']);
             }
+            $permissionOk = $group === 'storage_originals'
+                ? enforce_private_file_permissions($destination)
+                : enforce_shared_file_permissions($destination);
+            if (!$permissionOk) {
+                throw new RuntimeException('Не вдалося встановити безпечні права staging file: ' . $destination);
+            }
             $count++;
         }
     }
@@ -289,8 +369,14 @@ function restore_swap_directories(array &$mappings, string $journalPath, string 
  */
 function restore_recover_interrupted_operation(PDO $pdo, string $journalPath, ?array $targets = null): void
 {
-    if (!is_file($journalPath)) {
+    if (is_link($journalPath)) {
+        throw new RuntimeException('Restore journal не може бути symbolic link: ' . $journalPath);
+    }
+    if (!file_exists($journalPath)) {
         return;
+    }
+    if (!is_file($journalPath) || !filesystem_permissions_are_private($journalPath)) {
+        throw new RuntimeException('Restore journal не є приватним regular file: ' . $journalPath);
     }
 
     $json = file_get_contents($journalPath);
@@ -399,7 +485,7 @@ if (!is_file($zipPath)) {
 }
 
 $journalPath = storage_path('restore_journal.json');
-if (is_file($journalPath)) {
+if (file_exists($journalPath) || is_link($journalPath)) {
     $recoveryMaintenanceLock = null;
     try {
         $recoveryMaintenanceLock = acquire_media_maintenance_lock(LOCK_EX);
@@ -423,7 +509,11 @@ if ($zip->open($zipPath) !== true) {
 
 try {
     echo "Повна перевірка backup архіву перед відновленням...\n";
-    $validatedBackup = backup_validate_archive($zip);
+    $validatedBackup = backup_validate_archive(
+        $zip,
+        (int) app_config()['RESTORE_MAX_UNCOMPRESSED_BYTES'],
+        (int) app_config()['RESTORE_MAX_COMPRESSION_RATIO']
+    );
     $mediaCount = array_sum(array_map('count', $validatedBackup['media_entries']));
     echo "Backup format 2 валідний: перевірено allowlist, streams, size і SHA-256. Media-файлів: {$mediaCount}.\n";
 } catch (Throwable $exception) {
@@ -451,6 +541,11 @@ try {
     $pdo = db();
     $pdo->query('SELECT 1');
     echo "Підготовка і повторна перевірка media у staging...\n";
+    restore_require_staging_capacity(
+        $mappings,
+        $validatedBackup['media_uncompressed_bytes'],
+        (int) app_config()['RESTORE_MIN_FREE_BYTES']
+    );
     restore_prepare_staging($mappings);
     $stagedCount = restore_extract_to_staging($zip, $validatedBackup['media_entries'], $mappings);
     restore_write_journal($journalPath, $operationId, $marker, $mappings);

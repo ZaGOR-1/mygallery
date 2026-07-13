@@ -47,6 +47,7 @@ app/includes/maintenance_functions.php containment і media maintenance lock
 app/includes/share_functions.php      lookup/expiry helpers для share links
 app/includes/media_access_functions.php protected-media authorization helpers
 app/includes/album_zip_functions.php  ZIP naming/cache/cooldown/stream helpers
+app/includes/tag_service.php          transactional tag mutations + photo revisions
 config/                               конфігурація застосунку і БД
 database/schema.sql                   повна структура бази для чистої установки
 database/migrations/                  SQL-міграції для вже встановленої бази
@@ -78,7 +79,8 @@ tools/cleanup_orphans.php             пошук зайвих файлів і в
 tools/migrate_legacy_originals.php    перенесення старих public originals у storage/originals
 tools/recover_trash.php               відновлення або очищення trash manifest-файлів
 VERSION                               поточна версія проєкту
-tools/lib/SimpleZipWriter.php         pure-PHP ZIP writer для release/backup
+tools/lib/SimpleZipWriter.php         internal fallback/fault-test ZIP writer
+tools/lib/SafeCliZipOutput.php        safe atomic policy для CLI ZIP output
 tools/lib/BackupArchiveValidator.php  спільна fail-closed validation для backup/verify/restore
 README.md                             основна інструкція запуску
 AGENTS.md                             repo-only правила для AI/Codex-агента
@@ -217,6 +219,7 @@ C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_pho
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_06_15_add_photo_dominant_color.sql"
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_07_10_add_photo_lock_version.sql"
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_07_10_add_share_target_check.sql"
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root my_photo_gallery --execute="source database/migrations/2026_07_12_hash_share_tokens.sql"
 ```
 
 SQL-файли не містять `USE`, тому застосовуються до бази, яку ви явно передали в команді `mysql ... database_name < file.sql`.
@@ -241,15 +244,20 @@ mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS my_photo_gallery CHARACTER SE
 mysql -u root -p my_photo_gallery < database/schema.sql
 ```
 
-5. Створіть окремого користувача БД:
+5. Створіть окремого runtime-користувача БД лише з CRUD-правами та окремого maintenance-користувача для migrations/restore:
 
 ```sql
-CREATE USER 'gallery_user'@'localhost' IDENTIFIED BY 'strong_password';
-GRANT ALL PRIVILEGES ON my_photo_gallery.* TO 'gallery_user'@'localhost';
+CREATE USER 'gallery_runtime'@'localhost' IDENTIFIED BY 'strong_runtime_password';
+GRANT SELECT, INSERT, UPDATE, DELETE ON my_photo_gallery.* TO 'gallery_runtime'@'localhost';
+
+CREATE USER 'gallery_maintenance'@'localhost' IDENTIFIED BY 'strong_maintenance_password';
+GRANT ALL PRIVILEGES ON my_photo_gallery.* TO 'gallery_maintenance'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-6. Скопіюйте `config/database.example.php` у `config/database.php` і впишіть production-користувача.
+Web-застосунок у `config/database.php` має використовувати тільки `gallery_runtime`. Облікові дані `gallery_maintenance` задавайте через захищені environment variables лише на час `tools/migrate.php` або контрольованого restore; не зберігайте їх у web/FPM environment.
+
+6. Скопіюйте `config/database.example.php` у `config/database.php` і впишіть runtime-користувача.
 7. У `config/config.php` змініть:
 
 ```php
@@ -318,51 +326,59 @@ server {
     root /var/www/mygallery/public;
     index index.php index.html;
 
-    # Оптимізовані фото віддаються через media.php, не напряму зі static uploads
-    location ^~ /uploads/large/ {
-        deny all;
-    }
+    error_page 404 /404.php;
+    error_page 500 /500.php;
 
-    location ^~ /uploads/thumbnails/ {
-        deny all;
-    }
-
-    location ^~ /uploads/originals/ {
-        deny all;
-    }
-
-    # Блокуємо виконання PHP у папці uploads
+    # Усе uploaded media видається тільки через авторизований media.php.
     location ^~ /uploads/ {
-        location ~ \.php$ {
-            deny all;
-        }
+        deny all;
     }
 
-    # Всі інші запити направляємо на index.php
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
+    # Do not use ^~ here: the dotfile deny regex below must still take precedence.
+    location /assets/ {
+        try_files $uri =404;
     }
 
-    location ~ \.php$ {
+    location = / {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+        include fastcgi_params;
+    }
+
+    # Виконуються лише відомі public entry points; довільний PHP отримує 404.
+    location ~ ^/(?:index|albums|gallery|photo|share|media|download_album|404|500)\.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include fastcgi_params;
     }
 
-    # Забороняємо доступ до прихованих файлів (напр. .git, .env)
-    location ~ /\. {
+    location ~ ^/admin/(?:index|login|logout|upload|edit|delete|bulk_edit|albums|tags|share|download|health|stats|trash)\.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    location ~ (^|/)\. {
         deny all;
+    }
+
+    location / {
+        return 404;
     }
 }
 ```
+
+Замініть версію/шлях PHP-FPM відповідно до сервера. Після зміни конфігурації обов'язково перевірте, що `/missing-route`, невідомий `*.php`, hidden/control files і прямі `/uploads/*` повертають 403/404, а не homepage із кодом 200.
 
 ## Production-налаштування
 
 - `APP_ENV=production`;
 - `APP_DEBUG=false`;
 - `APP_URL` має починатися з `https://`;
-- окремий користувач БД, не `root` без пароля;
+- окремий runtime DB user тільки з `SELECT/INSERT/UPDATE/DELETE`; DDL/restore виконує окремий maintenance user;
 - складний пароль адміністратора;
 - HTTPS через Let’s Encrypt або інший сертифікат;
 - HSTS автоматично додається застосунком для `APP_ENV=production` і HTTPS-запитів;
@@ -420,19 +436,21 @@ printf "strong-password" | php tools/setup.php admin --password-from-stdin
 php tools/self_check.php
 ```
 
-Пошук зайвих JPEG-файлів, legacy public originals і DB-записів із відсутніми файлами:
+На старій інсталяції спочатку перенесіть legacy originals із публічної папки та перевірте dry-run:
+
+```bash
+php tools/migrate_legacy_originals.php
+php tools/migrate_legacy_originals.php --apply
+```
+
+Після migration шукайте зайві media і лише тоді запускайте destructive cleanup:
 
 ```bash
 php tools/cleanup_orphans.php
 php tools/cleanup_orphans.php --delete
 ```
 
-Перенесення старих оригіналів із `public/uploads/originals`:
-
-```bash
-php tools/migrate_legacy_originals.php
-php tools/migrate_legacy_originals.php --apply
-```
+`cleanup_orphans.php --delete` fail-closed: DB-referenced public original без private copy або з іншим SHA-256 не видаляється, а весь destructive run зупиняється з non-zero exit. Видаляються лише справжні orphan files і hash-verified public duplicates.
 
 Перевірка trash manifest-файлів після аварійного видалення:
 
@@ -442,12 +460,19 @@ php tools/recover_trash.php --apply
 php tools/recover_trash.php --apply --purge-deleted
 ```
 
+Перерване restore автоматично продовжується зі станів `restore_in_progress`/`restore_committed`. Recovery приймає live/trash duplicates лише після exact SHA-256 equality; конфліктні або відсутні обидві копії fail-closed і потребують перевірки оператора.
+
 Очищення старих службових файлів (логи, сесії, кошик) старше 7-30 днів:
 
 ```bash
 php tools/cleanup_runtime.php
 php tools/cleanup_runtime.php --apply
 ```
+
+Maintenance-команди повертають ненульовий exit code, якщо запитану файлову
+операцію не вдалося завершити. Файл, який у цей момент утримує інший процес,
+`cleanup_runtime.php` безпечно пропускає, окремо рахує як `busy` і не вважає
+помилкою запуску.
 
 Для Linux production рекомендується додати це в `cron` для щоденного очищення:
 ```bash
@@ -464,13 +489,15 @@ php tools/regenerate_images.php --all --photo-id=123
 php tools/regenerate_images.php --all --dry-run
 ```
 
+JPEG/WebP/AVIF replacements публікуються через same-directory temporary file та atomic rename. WebP/AVIF проходять image-format/size validation і 0640 policy; якщо encoder недоступний або generation failed, stale variant видаляється, а UI fallback-иться на JPEG.
+
 Збірка чистого release ZIP:
 
 ```bash
 php tools/build_release.php
 ```
 
-На виході буде `dist/mygallery_<VERSION>_release.zip`. Скрипт автоматично блокує ZIP, якщо у нього потрапляє `.git/`, `config/database.php`, `.env`, session/log/tmp/share-rate-limit/backup-файли, restore/maintenance locks або реальні фото з upload/storage. Для Markdown діє production allowlist: у корені лишаються `README.md`, `CHANGELOG.md`, `ROADMAP.md`, а в `docs/` — тільки operational/feature docs. Agent, AI prompt та audit reports до release не входять.
+На виході будуть `dist/mygallery_<VERSION>_release.zip`, checksum `*.zip.sha256` і audit metadata `*.zip.provenance.json`. Builder за замовчуванням fail-closed відмовляється працювати з dirty Git tree, unreachable commit або недоступними Git metadata та додає `BUILD_INFO.json` із commit і SHA-256 inventory payload-файлів. Clean payload береться тільки з exact `source_commit` tree, тому Git-ignored IDE/system/custom files не можуть непомітно потрапити в artifact; emergency dirty build використовує лише tracked і non-ignored files. Порядок entries, modes і timestamps стабільні; timestamp береться з валідного `SOURCE_DATE_EPOCH`, інакше з часу reachable Git commit. Два builds одного commit у тому самому toolchain мають бути byte-for-byte однаковими; CI це перевіряє. `--allow-dirty` дозволений лише для явно неперевіреної локальної аварійної збірки; такий artifact отримує dirty/unverified metadata і не є production release. Після закриття ZIP builder повторно читає й хешує кожен payload entry, забороняє symlink/junction path escapes і автоматично блокує `.git/`, `config/database.php`, `.env`, session/log/tmp/share-rate-limit/backup-файли, restore/maintenance locks або реальні фото з upload/storage. Для Markdown діє production allowlist: у корені лишаються `README.md`, `CHANGELOG.md`, `ROADMAP.md`, а в `docs/` — тільки operational/feature docs. Agent, AI prompt та audit reports до release не входять.
 
 Приватний backup:
 
@@ -510,7 +537,7 @@ php tools/verify_backup.php backups/mygallery_backup_YYYYMMDD_HHMMSS.zip
 mysqldump -u gallery_user -p my_photo_gallery > backup.sql
 ```
 
-Backup не можна зберігати всередині `public/` і не можна комітити в Git. `tools/backup.php` блокує `--output` у `public/`, але приватні backup-файли все одно треба зберігати поза `DocumentRoot`. Restore приймає лише поточний format v2, спочатку повністю перевіряє ZIP і staging-копію media, а потім координує транзакцію БД з directory swap та crash-recovery journal. Детальний порядок описаний у `docs/BACKUP_RESTORE.md`.
+Backup не можна зберігати всередині `public/` і не можна комітити в Git. `tools/backup.php` блокує `--output` у `public/`, але приватні backup-файли все одно треба зберігати поза `DocumentRoot`. Restore приймає лише поточний format v2, до extraction обмежує сукупний uncompressed size і compression ratio, перевіряє запас вільного місця, повністю перевіряє ZIP і staging-копію media, примусово задає приватним originals права 0700/0600, а потім координує транзакцію БД з directory swap та crash-recovery journal. Детальний порядок описаний у `docs/BACKUP_RESTORE.md`.
 
 ## Передача ZIP-архіву
 
@@ -540,6 +567,20 @@ DB_PORT=3306
 DB_NAME=my_photo_gallery
 DB_USER=gallery_user
 DB_PASSWORD=strong_password
+ALBUM_ZIP_ENABLED=true
+ALBUM_ZIP_CACHE_MAX_BYTES=2147483648
+ALBUM_ZIP_MAX_GENERATION_SECONDS=120
+ALBUM_ZIP_MAX_PHOTOS=200
+ALBUM_ZIP_MAX_SOURCE_BYTES=524288000
+ALBUM_ZIP_MAX_CONCURRENT_STREAMS=2
+SHARE_RATE_LIMIT_MAX_REQUESTS=120
+SHARE_RATE_LIMIT_WINDOW_SECONDS=60
+SHARE_RATE_LIMIT_TTL_SECONDS=172800
+SHARE_RATE_LIMIT_MAX_FILES_PER_SHARD=256
+BULK_EDIT_MAX_PHOTOS=200
+RESTORE_MAX_UNCOMPRESSED_BYTES=107374182400
+RESTORE_MAX_COMPRESSION_RATIO=250
+RESTORE_MIN_FREE_BYTES=268435456
 ```
 
 У production застосунок спеціально не стартує, якщо `APP_DEBUG=true`, `APP_URL` не `https://`, або БД налаштована на `root` без пароля.
@@ -553,7 +594,13 @@ php -d xdebug.mode=off tools/self_check.php
 php -d xdebug.mode=off tests/run.php
 ```
 
-Локально недоступні DB suites показуються окремо як `skipped` і не зараховуються до `passed`. Для CI/обов’язкового DB regression використовуйте `REQUIRE_TEST_DB=1 php tests/run.php`: будь-який skip тоді завершує runner з non-zero. GitHub Actions запускає PHP 8.2/8.4 matrix, MySQL schema/migrations, backup → verify → restore → self-check і базові HTTP security smoke checks. Це не скасовує ручну перевірку Apache/Nginx, TLS, браузера та production filesystem.
+Локально недоступні DB suites показуються окремо як `skipped` і не зараховуються до `passed`. Runner ніколи не підключається до звичайного `DB_NAME`: DB suites вимагають окремі `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_NAME`, `TEST_DB_USER`, `TEST_DB_PASSWORD`, причому `TEST_DB_NAME` має містити `test`. Приклад обов’язкового regression-запуску:
+
+```bash
+APP_ENV=test TEST_DB_NAME=my_photo_gallery_test TEST_DB_USER=gallery_test TEST_DB_PASSWORD=test_password REQUIRE_TEST_DB=1 php tests/run.php
+```
+
+Будь-який skip або PHP warning/notice/deprecation тоді завершує runner з non-zero. GitHub Actions запускає PHP 8.2/8.4 × MySQL/MariaDB matrix, непорожню fixture gallery, backup → verify → restore з row/hash comparison та окремі Apache/Nginx security smoke checks. Це не скасовує ручну перевірку TLS, браузера та production filesystem.
 
 ## Документація
 

@@ -1,0 +1,395 @@
+{
+    "format_version": 1,
+    "project": "mygallery",
+    "version": "6.4.25",
+    "source_commit": "682f04b53e11f852969f83abb2f37fbce4a87678",
+    "source_dirty": false,
+    "built_at_utc": "2026-07-12T16:38:54.144106Z",
+    "payload_file_count": 96,
+    "payload_sha256_inventory": {
+        ".gitattributes": {
+            "sha256": "23f1a13d7c853e2ec7a593d93364a519e24350c88a71bdc7f6ca5f03936c0557",
+            "size": 114
+        },
+        "CHANGELOG.md": {
+            "sha256": "8fc46d93d783b474d726e0921b5c29b8bde3da103ecd728f21344c983a4ec124",
+            "size": 27703
+        },
+        "README.md": {
+            "sha256": "7a7a70c73595881938bf75f78f6d0b77c5c5f29e64ef0b7579a3b08d0c5f4197",
+            "size": 35536
+        },
+        "ROADMAP.md": {
+            "sha256": "5771b75b6ebd51cb0a108b0a5609bb4ae37d94b350095363d4524ac9c4fed750",
+            "size": 3111
+        },
+        "VERSION": {
+            "sha256": "385c90e9332cdc072e35ed972bc793938fbd3405fc3900fae915d8b62c9453f3",
+            "size": 7
+        },
+        "app/includes/album_zip_functions.php": {
+            "sha256": "531f986ecf7874e6812e934ffd4fc1c826e1336d8afbc24da45278294c1de10d",
+            "size": 19721
+        },
+        "app/includes/auth.php": {
+            "sha256": "9764accf90ce357484b7f193e94383d238517e22f98bb547c1c2313769b8b210",
+            "size": 3141
+        },
+        "app/includes/auth_functions.php": {
+            "sha256": "c2f81912db1c129f1d07ec4e661dfa1abfd99b292a0e0b5c84001c13e58f1684",
+            "size": 4365
+        },
+        "app/includes/csrf.php": {
+            "sha256": "e0471fa2ef56ed181c0fdc9aa9279765dcdc83657517c78d3e37eaa7c57b9b46",
+            "size": 4013
+        },
+        "app/includes/db.php": {
+            "sha256": "0723d2c477e25570e7ef9023df2794d8095ff525a3b074412c8260128a6e558d",
+            "size": 2523
+        },
+        "app/includes/file_functions.php": {
+            "sha256": "3ea4b972bb81383779e4fb5753bd96d53c549f94ffd2a11f3df4b9958de8afc1",
+            "size": 41419
+        },
+        "app/includes/footer.php": {
+            "sha256": "5f55c6a4007610759eb06dd515e69152b360cb73bf159015d6e39a86ab9ac087",
+            "size": 336
+        },
+        "app/includes/functions.php": {
+            "sha256": "394f47c69e2e7ce5abad44044dad018d8ead0a325037c849f1a73a377a0cb84d",
+            "size": 33618
+        },
+        "app/includes/gallery_functions.php": {
+            "sha256": "86734345473ee754fcc9bcac8018accdc61823f1ff13abe99a7c1d54973f1544",
+            "size": 3073
+        },
+        "app/includes/header.php": {
+            "sha256": "6c2c51b76e3d658b38be3ec2101c3117b26f429f2884fba290992d1534cef3cd",
+            "size": 2254
+        },
+        "app/includes/maintenance_functions.php": {
+            "sha256": "050f8c9d2ae949b9424f34a15262f4d111090be483da59f8f3a49b6f6829aa62",
+            "size": 5205
+        },
+        "app/includes/media_access_functions.php": {
+            "sha256": "0edb38c384479512c3de70e87572ae002e13121fcf6575795aa4bf239e12e6e6",
+            "size": 1411
+        },
+        "app/includes/photo_service.php": {
+            "sha256": "f880d6da634cd424b547d9c043015a0eebdfdbfc9821a835434cdde466871f40",
+            "size": 24860
+        },
+        "app/includes/share_functions.php": {
+            "sha256": "ce19b1e7f8c23c05c601a8adbd9c6b862580d671b2e8201d4b36d5f132a8fb2e",
+            "size": 5660
+        },
+        "app/includes/tag_service.php": {
+            "sha256": "4241da010a1b7c255d9a217e199e91624f3e69c7da2e5939691919de940a7f50",
+            "size": 4655
+        },
+        "config/config.php": {
+            "sha256": "8cccedc83c62b871de19fd8dbfeae99c74c08045ffe5cfd50be596c1c695db59",
+            "size": 3026
+        },
+        "config/database.example.php": {
+            "sha256": "ce8a53c55089deff11ba135408229acc52424b47914d8185c4a4104221881822",
+            "size": 603
+        },
+        "database/migrations/2026_06_12_add_albums.sql": {
+            "sha256": "20c7c630b83bf3512dd642ef5fe15d4d01b8515efa434b3174ff5ef39ce0a92d",
+            "size": 1668
+        },
+        "database/migrations/2026_06_13_add_tags.sql": {
+            "sha256": "f68e262784ffd683b53ef0fddf0dc717ef40b8835b2b75b70fd8ac456142fbb1",
+            "size": 977
+        },
+        "database/migrations/2026_06_13_hardening.sql": {
+            "sha256": "a84ec7a9eaea85ca296b9094858a5741853e17a2333d6e254a0d27049cf0e046",
+            "size": 2799
+        },
+        "database/migrations/2026_06_15_add_album_covers.sql": {
+            "sha256": "b9018c00b790787a341909b98abbab61f60f6096b2758192a6ef8636b2f69b24",
+            "size": 1447
+        },
+        "database/migrations/2026_06_15_add_album_privacy.sql": {
+            "sha256": "556d0f3da504b503e56cf5a59705c665431dc8a0edf746ca5968478714db3865",
+            "size": 885
+        },
+        "database/migrations/2026_06_15_add_album_sort_order.sql": {
+            "sha256": "c742fafe002c28164c29d933d413d1f1992a342c1353029cf16869c6c6919b6b",
+            "size": 874
+        },
+        "database/migrations/2026_06_15_add_original_sha256.sql": {
+            "sha256": "43d1d0a2d874815333327af3729abe564769afcbee7b4a68fed16849c864a449",
+            "size": 972
+        },
+        "database/migrations/2026_06_15_add_photo_dominant_color.sql": {
+            "sha256": "517690e4dd728992050ece3e28fbbdc0f38dffac7ff8b5c5379abae84b3342ad",
+            "size": 479
+        },
+        "database/migrations/2026_06_15_add_session_version.sql": {
+            "sha256": "ee4099fe10b8bdaa3a8d9a705f2e4b03bf7ebb3c0f6f651aa887c0ce27e662b9",
+            "size": 537
+        },
+        "database/migrations/2026_06_15_create_share_links.sql": {
+            "sha256": "0d0ac54c85b37ee33780aab200f135aa47d07380786117baa2f2708c4a88df9f",
+            "size": 793
+        },
+        "database/migrations/2026_07_10_add_photo_lock_version.sql": {
+            "sha256": "1af4d3b2b6567ae243de9ec0144851d86cf501853689a4c6872baf9d514d15b6",
+            "size": 522
+        },
+        "database/migrations/2026_07_10_add_share_target_check.sql": {
+            "sha256": "7893decf2866fbfbdcefe6e9602f3736fb2904c68ec91aaa881df090ca2da302",
+            "size": 702
+        },
+        "database/migrations/2026_07_12_hash_share_tokens.sql": {
+            "sha256": "d9b6b2f8b4b79df5d8df06ffdfc6e4556f2d612490d39903ca8979d014a31789",
+            "size": 3155
+        },
+        "database/schema.sql": {
+            "sha256": "8c3c124927af5990b5a8a15e9d592ac58e854d099d541036737032a5780d8213",
+            "size": 6315
+        },
+        "docs/BACKUP_RESTORE.md": {
+            "sha256": "a0a74e066e7e7e668d0fd0178e20de4a262e1c9f25813c403f754596f2b475bb",
+            "size": 7756
+        },
+        "docs/BUGS.md": {
+            "sha256": "ee616c2d9bca8901930938f41aea7d95f05ce058b5ba44e5000c8f1a6e14f7a2",
+            "size": 5702
+        },
+        "docs/IMPLEMENTED_FEATURES.md": {
+            "sha256": "e21b889bde9441ab80d96ad290241f1c77022e84dc4a27e88db39d1cf8188d1a",
+            "size": 8108
+        },
+        "public/.htaccess": {
+            "sha256": "0c4d161738cfb69ae41e702cfd2a0d241d6a58beaca95eea06deb700b065a942",
+            "size": 1322
+        },
+        "public/404.php": {
+            "sha256": "a27d1a448262be2d479130fed0575ff0419cd48ea5b8a2156020b89177809da7",
+            "size": 1402
+        },
+        "public/500.php": {
+            "sha256": "1c40211e86deb1172f1e24e001c5ee9fa2e460006e08acbbd1ba89ce727c2178",
+            "size": 1651
+        },
+        "public/admin/albums.php": {
+            "sha256": "3f792de02b3bdbbb28469d9321168938bff1cf1ca7ee9d344a7b5d20b5650eb4",
+            "size": 16062
+        },
+        "public/admin/bulk_edit.php": {
+            "sha256": "b637d5dbf292101ba3c10f1a1f76adacb261f7cb49cbefc17daa38a7240a2191",
+            "size": 9787
+        },
+        "public/admin/delete.php": {
+            "sha256": "0b6caf729f2dff43f418a0bbd6d39b3043ec25ed93cec992068afd9901ab7f86",
+            "size": 1616
+        },
+        "public/admin/download.php": {
+            "sha256": "ffe6e9126c94f8a5fd988762d85d55da531a1321c2121db3feae8da2df86e271",
+            "size": 2291
+        },
+        "public/admin/edit.php": {
+            "sha256": "b0c74aa99d1c8b55288dc05550f2a728647712439a6c502e021b375330bff1ec",
+            "size": 8954
+        },
+        "public/admin/health.php": {
+            "sha256": "dbb5dda425037b4e32678be7ab4a94422c02544525e16c27bf65eb18959a2ed1",
+            "size": 9396
+        },
+        "public/admin/index.php": {
+            "sha256": "f1b01c1ab71cbb76939cc5cde0f6fed3082f2948428d384a13af5d04884d588c",
+            "size": 11926
+        },
+        "public/admin/login.php": {
+            "sha256": "7f0188c6b654e84242398191d5625e0659705d1db6bdcf8252ca59decdd22142",
+            "size": 8679
+        },
+        "public/admin/logout.php": {
+            "sha256": "45f562b57033731bbbf81ed765f9e88d9bdceee7fc7e706795bc35bb193eb2c7",
+            "size": 583
+        },
+        "public/admin/share.php": {
+            "sha256": "7bf02c2da2279540ead3e9519df932170759e8b3faffc4574ea7d5eebdc674d4",
+            "size": 5167
+        },
+        "public/admin/stats.php": {
+            "sha256": "79e28efa7345c588ad7ff626a2712ab5fa5be8321bedad8ea2cec4e04e10e686",
+            "size": 11554
+        },
+        "public/admin/tags.php": {
+            "sha256": "7605d45a1738da3514c1e614943609aa9121b0b9e1307f2a89fbd2ed0b5d3cb1",
+            "size": 8820
+        },
+        "public/admin/trash.php": {
+            "sha256": "d0d8ca8b1e211f1a1e0e28d0d228d030413b5e9b7fdce5cee32b9bccb2c5e158",
+            "size": 9296
+        },
+        "public/admin/upload.php": {
+            "sha256": "f2411e199acb33d03aa9e3b96f5edc5e98f741506d4b63c85e8244b7f040970d",
+            "size": 10497
+        },
+        "public/albums.php": {
+            "sha256": "432895d6b591be9376776375ba78bcae00a11f7519d286cca5024680fb23a20b",
+            "size": 3368
+        },
+        "public/assets/.htaccess": {
+            "sha256": "04aa2149d58d2a31b821f122d61fff5de3736190d9a667bd2fc3c59c1ad702cc",
+            "size": 190
+        },
+        "public/assets/css/style.css": {
+            "sha256": "9294e289ac0119f781b9114fcf2c2ec22ec98e3f63ab967ac811eca055923f5d",
+            "size": 31995
+        },
+        "public/assets/favicon.svg": {
+            "sha256": "dadc5727d2ac0949df4492145505a6f727332057d965da1d1f4a20a74c3e3bac",
+            "size": 263
+        },
+        "public/assets/js/main.js": {
+            "sha256": "dacdd10c50bbc0cd6ea726ef9235ef1115cf6605ebcf33061f61df0347c96f99",
+            "size": 20687
+        },
+        "public/download_album.php": {
+            "sha256": "145c570b20017141ed0802f532759d22759e6c5a9b557008fc65868230c8ff44",
+            "size": 11189
+        },
+        "public/gallery.php": {
+            "sha256": "9f299ebcf9f14ae76cc622222ab06c32bad3aa7e262bf338f5ec5e674ef68e07",
+            "size": 12019
+        },
+        "public/index.php": {
+            "sha256": "d09c7108c2f384fc8626f5c7badea6e0d0921dc7ddfd2b409f43802f838cc822",
+            "size": 7074
+        },
+        "public/media.php": {
+            "sha256": "603d74343b984dcfa436aa9cec4f746199cebc30d05235d5b92c7d44c7ec05fa",
+            "size": 4988
+        },
+        "public/photo.php": {
+            "sha256": "1569999f33f077fb31c9e627754e5934dd7760cbd66682d0158d06b6300109bf",
+            "size": 8779
+        },
+        "public/share.php": {
+            "sha256": "6422430b78d51058ebda6db2699b833b9d89ed3703baf5dc90118ee48db286a6",
+            "size": 5710
+        },
+        "public/uploads/.htaccess": {
+            "sha256": "590743eee9bfd319ed3949298738f216d767af21b0d53a1eed08ec6fc458e906",
+            "size": 394
+        },
+        "public/uploads/large/.gitkeep": {
+            "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "size": 1
+        },
+        "public/uploads/large/.htaccess": {
+            "sha256": "fa28d421a28ed9b6f4b997d5119c2b8adbacff6e2dd119a179b71230f9664934",
+            "size": 19
+        },
+        "public/uploads/originals/.gitkeep": {
+            "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "size": 1
+        },
+        "public/uploads/originals/.htaccess": {
+            "sha256": "fa28d421a28ed9b6f4b997d5119c2b8adbacff6e2dd119a179b71230f9664934",
+            "size": 19
+        },
+        "public/uploads/thumbnails/.gitkeep": {
+            "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "size": 1
+        },
+        "public/uploads/thumbnails/.htaccess": {
+            "sha256": "fa28d421a28ed9b6f4b997d5119c2b8adbacff6e2dd119a179b71230f9664934",
+            "size": 19
+        },
+        "storage/download_locks/.gitkeep": {
+            "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "size": 1
+        },
+        "storage/logs/.gitkeep": {
+            "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "size": 1
+        },
+        "storage/originals/.gitkeep": {
+            "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "size": 1
+        },
+        "storage/sessions/.gitkeep": {
+            "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "size": 1
+        },
+        "storage/share_ratelimit/.gitkeep": {
+            "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "size": 1
+        },
+        "storage/trash/.gitkeep": {
+            "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "size": 1
+        },
+        "tools/backfill_sha256.php": {
+            "sha256": "b61c031e07eae6aa81f754cef76325175b9984fc695894a344d9a9b3585389b1",
+            "size": 1270
+        },
+        "tools/backup.php": {
+            "sha256": "7abacc2918a74df6f2fbdedf4bfd73caa2b1aba2ba3ce492d979935f70e02f1f",
+            "size": 13822
+        },
+        "tools/build_release.php": {
+            "sha256": "06733594e7c0442c09cb149019cfd70ccec61c76d331efa691cc243775842ff5",
+            "size": 15146
+        },
+        "tools/cleanup_orphans.php": {
+            "sha256": "2e5bbd5d2e4f5a9bf969e6bc4ec38211f6f95f6b7f419043af6458d2a999ba7d",
+            "size": 5081
+        },
+        "tools/cleanup_runtime.php": {
+            "sha256": "60151a0f861fb855ff801a061771d548b473f874481fa925caed0c8dc88341a3",
+            "size": 7538
+        },
+        "tools/lib/BackupArchiveValidator.php": {
+            "sha256": "9acb35bed41142ff889a018c52a9ab577742267e3bc28413d258b7bd25b16ee4",
+            "size": 19083
+        },
+        "tools/lib/SafeCliZipOutput.php": {
+            "sha256": "a8f939f83553e80d9817c7814c8bb6e99ee65f8a79246b87474b36df1962c906",
+            "size": 6432
+        },
+        "tools/lib/SimpleZipWriter.php": {
+            "sha256": "2b09a08f4801d6ab1678852af0d9cee31903178d19d5a92a6c2cf2eab644dbfd",
+            "size": 7061
+        },
+        "tools/migrate.php": {
+            "sha256": "b1a62bc89219928f3672bc7d45c3b38a17a0d5ea9745ef01d94fc2031fb944b8",
+            "size": 2943
+        },
+        "tools/migrate_legacy_originals.php": {
+            "sha256": "a199ab5e66dd633bd73b8ed646ea0a18cb350a94caa061934b024b164c4a1aa8",
+            "size": 2201
+        },
+        "tools/recover_trash.php": {
+            "sha256": "05a9690fcfe210e9e49a774bfe9bd1f341582197b5e750c0410efb4d68101017",
+            "size": 4460
+        },
+        "tools/regenerate_images.php": {
+            "sha256": "59fb24658bef79b42aada1e70beba3165c202b6ffdb1962efbc0456ff6b1f451",
+            "size": 6223
+        },
+        "tools/restore.php": {
+            "sha256": "e3abc7f71714d2e7b604054a946e9454007c077f86d443776fa310ce6443c99f",
+            "size": 22853
+        },
+        "tools/self_check.php": {
+            "sha256": "b6f17643530a5d03ca20b99cafcdfbcf2fbfbae96d0188f77d004963b68375d3",
+            "size": 15977
+        },
+        "tools/setup.php": {
+            "sha256": "da12d6d0f6bb6401a2ab804d26afd6c7093bf3ba0ceb511ef0a197e7e589c7e7",
+            "size": 4250
+        },
+        "tools/verify_backup.php": {
+            "sha256": "04b00d1c84b7962cfc30bbfc38e99c07a65acb5ee205846ebfdd46d42e4f7f92",
+            "size": 1693
+        }
+    }
+}

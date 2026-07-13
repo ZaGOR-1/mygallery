@@ -12,7 +12,8 @@ if (PHP_SAPI !== 'cli') {
 $deletePublicCopies = in_array('--delete-public', $argv, true);
 $dryRun = !in_array('--apply', $argv, true);
 $legacyFiles = glob(uploads_path('originals') . DIRECTORY_SEPARATOR . '*.jpg') ?: [];
-$mediaMaintenanceLock = $dryRun ? null : acquire_media_maintenance_lock(LOCK_SH);
+$mediaMaintenanceLock = $dryRun ? null : acquire_media_maintenance_lock(LOCK_EX);
+$failed = 0;
 
 if (empty($legacyFiles)) {
     echo "Legacy originals у public/uploads/originals не знайдено.\n";
@@ -34,18 +35,42 @@ foreach ($legacyFiles as $legacyPath) {
 
     if (!$hasPrivate) {
         echo "move public/uploads/originals/$filename -> storage/originals/$filename\n";
-        if (!$dryRun && !@rename($legacyPath, $target)) {
-            fwrite(STDERR, "Не вдалося перенести $filename\n");
+        if (!$dryRun) {
+            if (!@rename($legacyPath, $target)) {
+                fwrite(STDERR, "Не вдалося перенести $filename\n");
+                $failed++;
+                continue;
+            }
+            if (!enforce_private_file_permissions($target)) {
+                $rolledBack = @rename($target, $legacyPath);
+                fwrite(STDERR, "Не вдалося встановити 0600 для $filename"
+                    . ($rolledBack ? '; перенесення скасовано.' : '; потрібне ручне відновлення!') . "\n");
+                $failed++;
+            }
         }
         continue;
     }
 
-    $same = hash_file('sha256', $legacyPath) === hash_file('sha256', $target);
+    if (!$dryRun && !enforce_private_file_permissions($target)) {
+        fwrite(STDERR, "Не вдалося встановити 0600 для наявного private original $filename\n");
+        $failed++;
+        continue;
+    }
+
+    $legacyHash = @hash_file('sha256', $legacyPath);
+    $targetHash = @hash_file('sha256', $target);
+    if (!is_string($legacyHash) || !is_string($targetHash)) {
+        fwrite(STDERR, "Не вдалося обчислити SHA-256 для $filename\n");
+        $failed++;
+        continue;
+    }
+    $same = hash_equals($legacyHash, $targetHash);
 
     if ($same || $deletePublicCopies) {
         echo "delete public copy: public/uploads/originals/$filename" . ($same ? " [same hash]" : " [forced]") . "\n";
         if (!$dryRun && !@unlink($legacyPath)) {
             fwrite(STDERR, "Не вдалося видалити public-копію $filename\n");
+            $failed++;
         }
     } else {
         echo "keep for manual review: public/uploads/originals/$filename [private copy differs]\n";
@@ -57,3 +82,4 @@ if ($dryRun) {
 }
 
 release_media_maintenance_lock($mediaMaintenanceLock);
+exit($failed > 0 ? 1 : 0);

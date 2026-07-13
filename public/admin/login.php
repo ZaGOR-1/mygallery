@@ -166,8 +166,8 @@ function dummy_password_hash(): string
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_csrf();
 
-    $username = trim((string) ($_POST['username'] ?? ''));
-    $password = (string) ($_POST['password'] ?? '');
+    $username = request_string($_POST, 'username', 100);
+    $password = request_raw_string($_POST, 'password', '', 4096);
     $ip = client_ip();
 
     if ($username === '' || $password === '') {

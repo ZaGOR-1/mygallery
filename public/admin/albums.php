@@ -17,13 +17,10 @@ require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPAR
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_csrf();
 
-    $action = (string) ($_POST['action'] ?? '');
-    $albumId = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
-    $albumName = (string) ($_POST['name'] ?? '');
-    $coverPhotoId = filter_input(INPUT_POST, 'cover_photo_id', FILTER_VALIDATE_INT);
-    if ($coverPhotoId === false || $coverPhotoId < 1) {
-        $coverPhotoId = null;
-    }
+    $action = request_string($_POST, 'action', 32);
+    $albumId = request_int($_POST, 'id', null, 1);
+    $albumName = request_string($_POST, 'name', 100);
+    $coverPhotoId = request_int($_POST, 'cover_photo_id', null, 1);
     $isPrivate = isset($_POST['is_private']) && $_POST['is_private'] === '1' ? 1 : 0;
 
     if (empty($errors)) {
@@ -33,11 +30,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new InvalidArgumentException('Назва альбому не може бути порожньою.');
                 }
 
-                find_or_create_album($albumName, $isPrivate);
+                create_album_strict($albumName, $isPrivate);
                 set_flash('success', 'Альбом створено.');
                 redirect('admin/albums.php');
             } elseif ($action === 'update') {
-                if ($albumId === false || $albumId === null || $albumId < 1) {
+                if ($albumId === null) {
                     throw new InvalidArgumentException('Некоректний альбом.');
                 }
                 
@@ -46,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('success', 'Альбом оновлено.');
                 redirect('admin/albums.php');
             } elseif ($action === 'delete') {
-                if ($albumId === false || $albumId === null || $albumId < 1) {
+                if ($albumId === null) {
                     throw new InvalidArgumentException('Некоректний альбом.');
                 }
 
@@ -55,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('success', 'Альбом видалено. Фотографії залишилися без альбому.');
                 redirect('admin/albums.php');
             } elseif ($action === 'move_up') {
-                if ($albumId === false || $albumId === null || $albumId < 1) {
+                if ($albumId === null) {
                     throw new InvalidArgumentException('Некоректний альбом.');
                 }
 
@@ -63,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('success', 'Порядок альбому змінено.');
                 redirect('admin/albums.php');
             } elseif ($action === 'move_down') {
-                if ($albumId === false || $albumId === null || $albumId < 1) {
+                if ($albumId === null) {
                     throw new InvalidArgumentException('Некоректний альбом.');
                 }
 
@@ -161,12 +158,21 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
 
 <?php if ($editingAlbum): ?>
 <?php
-$stmt = db()->prepare('SELECT id, token, expires_at FROM share_links WHERE album_id = ? ORDER BY created_at DESC, id DESC');
+$stmt = db()->prepare('SELECT id, token_hint, expires_at FROM share_links WHERE album_id = ? ORDER BY created_at DESC, id DESC');
 $stmt->execute([$editingAlbum['id']]);
 $albumShares = $stmt->fetchAll();
+$newAlbumShareUrl = pull_one_time_secret('album_share_' . (int) $editingAlbum['id']);
 ?>
 <section class="form-panel admin-share-panel">
     <h2>Приватні посилання на альбом</h2>
+    <?php if ($newAlbumShareUrl !== null): ?>
+        <div class="alert alert-success">
+            <strong>Нове посилання — скопіюйте зараз:</strong><br>
+            <a href="<?= h($newAlbumShareUrl) ?>" target="_blank" rel="noopener noreferrer"><?= h($newAlbumShareUrl) ?></a>
+            <button class="button secondary btn-copy" data-copy-text="<?= h($newAlbumShareUrl) ?>" type="button">Копіювати</button>
+            <div class="form-hint">Raw token не зберігається у базі й після оновлення сторінки більше не показуватиметься.</div>
+        </div>
+    <?php endif; ?>
     <?php if ($albumShares): ?>
         <ul class="admin-share-list">
         <?php foreach ($albumShares as $link): ?>
@@ -176,15 +182,13 @@ $albumShares = $stmt->fetchAll();
             ?>
             <li>
                 <div class="share-link-details">
-                    <a href="<?= h(url('share.php?token=' . $link['token'])) ?>" target="_blank">
-                        <?= h(url('share.php?token=' . $link['token'])) ?>
-                    </a>
+                    <strong>Посилання …<?= h((string) ($link['token_hint'] ?? '')) ?></strong>
                     <span class="share-link-status <?= $isExpired ? 'is-expired' : '' ?>">
                         <?= $expiresAt === '' ? 'Без строку дії' : ($isExpired ? 'Застаріло: ' : 'Діє до: ') . h($expiresAt) ?>
                     </span>
+                    <span class="form-hint">Повний token не зберігається. Для нового URL створіть нове посилання.</span>
                 </div>
                 <div class="admin-actions">
-                    <button class="button secondary btn-copy" data-copy-text="<?= h(url('share.php?token=' . $link['token'])) ?>" type="button">Копіювати</button>
                     <form method="post" action="<?= h(url('admin/share.php')) ?>" data-confirm="Видалити посилання?">
                         <?= csrf_field() ?>
                         <input type="hidden" name="action" value="revoke">

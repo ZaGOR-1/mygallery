@@ -15,8 +15,8 @@ $errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_csrf();
 
-    $action = (string) ($_POST['action'] ?? '');
-    $operationId = trim((string) ($_POST['operation_id'] ?? ''));
+    $action = request_string($_POST, 'action', 32);
+    $operationId = request_string($_POST, 'operation_id', 32);
 
     if (empty($errors)) {
         try {
@@ -52,6 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $trashItems = [];
 try {
+    recover_interrupted_trash_manifest_updates();
     $manifests = glob(trash_path('*.json')) ?: [];
     foreach ($manifests as $manifestPath) {
         $manifest = json_decode((string) file_get_contents($manifestPath), true);
@@ -59,17 +60,13 @@ try {
             $operationId = pathinfo($manifestPath, PATHINFO_FILENAME);
             $photoData = $manifest['photo_data'] ?? [];
             
-            $deletedAt = $manifest['created_at'] ?? '';
-            if ($deletedAt !== '') {
-                $date = DateTime::createFromFormat(DateTime::ATOM, $deletedAt);
-                if ($date === false) {
-                    // Fallback parse
-                    $date = date_create($deletedAt);
-                }
-                if ($date instanceof DateTime) {
-                    $deletedAt = $date->format('d.m.Y H:i');
-                }
+            $deletedAtRaw = is_string($manifest['created_at'] ?? null) ? $manifest['created_at'] : '';
+            $deletedTimestamp = $deletedAtRaw !== '' ? strtotime($deletedAtRaw) : false;
+            if (!is_int($deletedTimestamp)) {
+                $mtime = filemtime($manifestPath);
+                $deletedTimestamp = is_int($mtime) ? $mtime : 0;
             }
+            $deletedAt = $deletedTimestamp > 0 ? date('d.m.Y H:i', $deletedTimestamp) : 'Невідомо';
 
             $trashItems[] = [
                 'operation_id' => $operationId,
@@ -78,14 +75,13 @@ try {
                 'original_name' => $photoData['original_name'] ?? 'Невідомо',
                 'file_size' => isset($photoData['file_size']) ? (int) $photoData['file_size'] : 0,
                 'deleted_at' => $deletedAt,
+                'deleted_timestamp' => $deletedTimestamp,
+                'recovery_status' => (string) ($manifest['status'] ?? 'ready'),
             ];
         }
     }
 
-    // Sort by deleted_at descending
-    usort($trashItems, static function (array $a, array $b): int {
-        return strcmp($b['deleted_at'], $a['deleted_at']);
-    });
+    usort($trashItems, static fn (array $a, array $b): int => (int) $b['deleted_timestamp'] <=> (int) $a['deleted_timestamp']);
 } catch (Throwable $exception) {
     app_log_exception($exception, 'Failed to load trash list');
     $errors[] = 'Не вдалося завантажити список видалених файлів.';
@@ -140,6 +136,9 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
                         <span>Файл: <?= h($item['original_name']) ?></span>
                         <span>Розмір: <?= h(bytes_for_display($item['file_size'])) ?></span>
                         <span>Видалено: <?= h($item['deleted_at']) ?></span>
+                        <?php if ($item['recovery_status'] !== 'ready'): ?>
+                            <span>Стан recovery: <?= h($item['recovery_status']) ?> — потрібна повторна перевірка</span>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <div class="admin-actions">

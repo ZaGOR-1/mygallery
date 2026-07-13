@@ -101,14 +101,18 @@ function test_backup_create_zip(
     return $path;
 }
 
-function test_backup_validate_path(string $path): array
+function test_backup_validate_path(
+    string $path,
+    int $maximumTotalUncompressedBytes = MYGALLERY_BACKUP_MAX_TOTAL_UNCOMPRESSED_BYTES,
+    int $maximumCompressionRatio = MYGALLERY_BACKUP_MAX_COMPRESSION_RATIO
+): array
 {
     $zip = new ZipArchive();
     if ($zip->open($path) !== true) {
         throw new RuntimeException('Test archive cannot be opened.');
     }
     try {
-        return backup_validate_archive($zip);
+        return backup_validate_archive($zip, $maximumTotalUncompressedBytes, $maximumCompressionRatio);
     } finally {
         $zip->close();
     }
@@ -121,6 +125,26 @@ try {
     $validPath = test_backup_create_zip($testDirectory, 'valid.zip');
     $validated = test_backup_validate_path($validPath);
     assert_equals(5, array_sum(array_map('count', $validated['media_entries'])), 'valid JPEG/WebP/AVIF archive media count');
+    assert_true($validated['total_uncompressed_bytes'] > 0, 'backup validator must report total uncompressed bytes');
+    assert_equals(strlen('ORIGINAL-CONTENT'), $validated['media_uncompressed_bytes']['storage_originals'], 'backup validator must report per-target staging bytes');
+
+    assert_throws(
+        static fn (): array => test_backup_validate_path($validPath, 32, MYGALLERY_BACKUP_MAX_COMPRESSION_RATIO),
+        RuntimeException::class,
+        'backup validator must enforce the cumulative uncompressed-byte limit'
+    );
+
+    $ratioPath = $testDirectory . DIRECTORY_SEPARATOR . 'ratio-bomb.zip';
+    $ratioZip = new ZipArchive();
+    assert_true($ratioZip->open($ratioPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) === true, 'ratio ZIP should open');
+    assert_true($ratioZip->addFromString('first.bin', str_repeat('A', 2 * 1024 * 1024)), 'ratio payload should be added');
+    assert_true($ratioZip->addFromString('second.bin', 'x'), 'ratio ZIP needs a second entry');
+    assert_true($ratioZip->close(), 'ratio ZIP should close');
+    assert_throws(
+        static fn (): array => test_backup_validate_path($ratioPath, 10 * 1024 * 1024, 10),
+        RuntimeException::class,
+        'backup validator must reject suspicious compression ratios before extraction'
+    );
 
     $emptyMediaPath = test_backup_create_zip($testDirectory, 'empty-media.zip', null, [], [], null, true);
     $emptyMediaValidated = test_backup_validate_path($emptyMediaPath);

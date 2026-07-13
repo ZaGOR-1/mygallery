@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'photo_service.php';
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
@@ -11,7 +12,8 @@ if (PHP_SAPI !== 'cli') {
 
 $apply = in_array('--apply', $argv, true);
 $purgeDeleted = in_array('--purge-deleted', $argv, true);
-$mediaMaintenanceLock = $apply ? acquire_media_maintenance_lock(LOCK_SH) : null;
+$mediaMaintenanceLock = $apply ? acquire_media_maintenance_lock(LOCK_EX) : null;
+recover_interrupted_trash_manifest_updates();
 $manifests = glob(trash_path('*.json')) ?: [];
 $totalRestored = 0;
 $totalPurged = 0;
@@ -32,6 +34,8 @@ foreach ($manifests as $manifestPath) {
     }
 
     $photoId = (int) ($manifest['photo_id'] ?? 0);
+    $operationId = (string) ($manifest['operation_id'] ?? pathinfo($manifestPath, PATHINFO_FILENAME));
+    $recoveryStatus = (string) ($manifest['status'] ?? 'ready');
     $exists = false;
     $manifestErrors = 0;
     $manifestActions = 0;
@@ -43,6 +47,21 @@ foreach ($manifests as $manifestPath) {
     }
 
     echo basename($manifestPath) . ': photo_id=' . $photoId . ', db_row=' . ($exists ? 'exists' : 'missing') . "\n";
+
+    if (in_array($recoveryStatus, ['restore_in_progress', 'restore_committed'], true)) {
+        echo "  resume interrupted restore ({$recoveryStatus})\n";
+        if ($apply) {
+            try {
+                restore_photo_from_trash_unlocked(db(), $operationId);
+                $totalRestored += count(is_array($manifest['files'] ?? null) ? $manifest['files'] : []);
+                echo "  interrupted restore completed\n";
+            } catch (Throwable $exception) {
+                echo '  restore failed: ' . $exception->getMessage() . "\n";
+                $totalErrors++;
+            }
+        }
+        continue;
+    }
 
     foreach (($manifest['files'] ?? []) as $file) {
         $resolved = resolve_trash_manifest_entry((array) $file);
@@ -62,26 +81,15 @@ foreach ($manifests as $manifestPath) {
             echo "  restore $filename\n";
 
             if ($apply) {
-                if (is_file($from)) {
-                    echo "  already restored: $filename\n";
-                    $manifestActions++;
-                    continue;
-                }
-
-                if (!is_file($trash)) {
-                    echo "  restore skipped, trash file missing: $filename\n";
-                    $manifestErrors++;
-                    $totalSkipped++;
-                    continue;
-                }
-
-                if (!@rename($trash, $from)) {
-                    echo "  restore failed: $filename\n";
+                try {
+                    install_trash_restore_file($resolved);
+                    finalize_trash_restore_file($resolved);
+                } catch (Throwable $exception) {
+                    echo '  restore failed: ' . $exception->getMessage() . "\n";
                     $manifestErrors++;
                     $totalErrors++;
                     continue;
                 }
-
                 $manifestActions++;
                 $totalRestored++;
             }
@@ -137,3 +145,4 @@ if (!$apply) {
 }
 
 release_media_maintenance_lock($mediaMaintenanceLock);
+exit($totalErrors > 0 ? 1 : 0);

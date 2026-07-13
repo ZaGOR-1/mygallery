@@ -57,21 +57,12 @@ function photo_search_condition(string $search, bool $includeOriginalName, array
 
     if ($fulltextQuery !== '' && fulltext_index_exists($fulltextIndex)) {
         $params['search_fulltext'] = $fulltextQuery;
-        $params['search_title'] = '%' . $search . '%';
-        $params['search_description'] = '%' . $search . '%';
 
         if ($includeOriginalName) {
-            $params['search_original'] = '%' . $search . '%';
-
-            return '(MATCH(photos.title, photos.description, photos.original_name) AGAINST (:search_fulltext IN BOOLEAN MODE)
-                OR photos.title LIKE :search_title
-                OR photos.description LIKE :search_description
-                OR photos.original_name LIKE :search_original)';
+            return 'MATCH(photos.title, photos.description, photos.original_name) AGAINST (:search_fulltext IN BOOLEAN MODE)';
         }
 
-        return '(MATCH(photos.title, photos.description) AGAINST (:search_fulltext IN BOOLEAN MODE)
-            OR photos.title LIKE :search_title
-            OR photos.description LIKE :search_description)';
+        return 'MATCH(photos.title, photos.description) AGAINST (:search_fulltext IN BOOLEAN MODE)';
     }
 
     $params['search_title'] = '%' . $search . '%';

@@ -16,11 +16,17 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 require_csrf();
 
-$photoIdsRaw = $_POST['photo_ids'] ?? [];
-$action = $_POST['bulk_action'] ?? 'edit';
+$maximumBulkPhotos = max(1, (int) (app_config()['BULK_EDIT_MAX_PHOTOS'] ?? 200));
+$photoIdsRaw = request_string_list($_POST, 'photo_ids', $maximumBulkPhotos + 1);
+$action = request_string($_POST, 'bulk_action', 16, 'edit');
 
-if (!is_array($photoIdsRaw) || empty($photoIdsRaw)) {
+if (empty($photoIdsRaw)) {
     set_flash('error', 'Ви не вибрали жодної фотографії для редагування.');
+    redirect('admin/index.php');
+}
+
+if (count($photoIdsRaw) > $maximumBulkPhotos) {
+    set_flash('error', 'За одну операцію можна обробити не більше ' . $maximumBulkPhotos . ' фотографій.');
     redirect('admin/index.php');
 }
 
@@ -61,12 +67,21 @@ if ($action === 'delete') {
         redirect('admin/index.php');
     }
 } elseif ($action === 'save') {
-    $newAlbumIdRaw = $_POST['album_id'] ?? '';
-    $newTags = (string) ($_POST['tags'] ?? '');
+    $newAlbumIdRaw = request_raw_string($_POST, 'album_id', '', 20);
+    $newTags = request_string($_POST, 'tags', 500);
 
     try {
         $pdo = db();
         $pdo->beginTransaction();
+
+        // Work only with rows that still exist; report the real affected count.
+        $requestedPlaceholders = implode(',', array_fill(0, count($photoIds), '?'));
+        $existingStmt = $pdo->prepare("SELECT id FROM photos WHERE id IN ($requestedPlaceholders) ORDER BY id FOR UPDATE");
+        $existingStmt->execute($photoIds);
+        $photoIds = array_map('intval', $existingStmt->fetchAll(PDO::FETCH_COLUMN));
+        if ($photoIds === []) {
+            throw new InvalidArgumentException('Вибрані фотографії більше не існують.');
+        }
 
         // 1. Update album
         $placeholders = implode(',', array_fill(0, count($photoIds), '?'));
@@ -77,8 +92,13 @@ if ($action === 'delete') {
             $stmt = $pdo->prepare("UPDATE photos SET album_id = NULL WHERE id IN ($placeholders)");
             $stmt->execute($photoIds);
         } elseif ($newAlbumIdRaw !== '') {
-            // Move to specific album
-            $albumId = (int) $newAlbumIdRaw;
+            // Move to a specific album. Reject malformed scalar values instead
+            // of silently converting strings such as "12abc" to 12 or 0.
+            $validatedAlbumId = filter_var($newAlbumIdRaw, FILTER_VALIDATE_INT);
+            if (!is_int($validatedAlbumId) || $validatedAlbumId < 1) {
+                throw new InvalidArgumentException('Некоректний альбом.');
+            }
+            $albumId = $validatedAlbumId;
             // Check if album exists
             $albumCheck = $pdo->prepare('SELECT id FROM albums WHERE id = ?');
             $albumCheck->execute([$albumId]);

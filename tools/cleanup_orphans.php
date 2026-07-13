@@ -10,7 +10,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $delete = in_array('--delete', $argv, true);
-$mediaMaintenanceLock = $delete ? acquire_media_maintenance_lock(LOCK_SH) : null;
+$mediaMaintenanceLock = $delete ? acquire_media_maintenance_lock(LOCK_EX) : null;
 
 function display_media_path(string $root, string $folder, string $filename): string
 {
@@ -34,6 +34,7 @@ $expected = [
     'public:large' => [],
     'public:thumbnails' => [],
 ];
+$referencedOriginals = [];
 $missing = [];
 
 foreach ($photos as $photo) {
@@ -42,6 +43,7 @@ foreach ($photos as $photo) {
     $thumbnail = (string) ($photo['thumbnail_filename'] ?? '');
 
     if (valid_photo_filename($filename)) {
+        $referencedOriginals[$filename] = true;
         $expected['storage:originals'][$filename] = true;
         $expected['public:large'][$filename] = true;
 
@@ -74,6 +76,7 @@ $scanLocations = [
     'public:originals' => uploads_path('originals'),
 ];
 $orphans = [];
+$blockedLegacyOriginals = [];
 
 foreach ($scanLocations as $location => $basePath) {
     [$root, $folder] = explode(':', $location, 2);
@@ -92,8 +95,23 @@ foreach ($scanLocations as $location => $basePath) {
         }
         $known = isset($expected[$location][$baseJpg]);
 
-        if (!$known || $location === 'public:originals') {
-            $orphans[] = [$root, $folder, $filename, $location === 'public:originals' ? 'legacy public original' : 'orphan'];
+        if ($location === 'public:originals' && str_ends_with($filename, '.jpg')) {
+            $privatePath = safe_existing_storage_file_path('originals', $filename);
+            $decision = legacy_original_cleanup_decision(
+                $file,
+                $privatePath,
+                isset($referencedOriginals[$filename])
+            );
+            if ($decision['deletable']) {
+                $orphans[] = [$root, $folder, $filename, $decision['reason']];
+            } else {
+                $blockedLegacyOriginals[] = [$filename, $decision['reason']];
+            }
+            continue;
+        }
+
+        if (!$known) {
+            $orphans[] = [$root, $folder, $filename, 'orphan'];
         }
     }
 }
@@ -115,9 +133,24 @@ if (empty($orphans)) {
     }
 }
 
+if ($blockedLegacyOriginals !== []) {
+    echo "\nLegacy originals, які не можна безпечно видалити: " . count($blockedLegacyOriginals) . "\n";
+    foreach ($blockedLegacyOriginals as [$filename, $reason]) {
+        echo display_media_path('public', 'originals', $filename) . ' [' . $reason . "]\n";
+    }
+}
+
 if (!$delete) {
-    echo "\nЗапустіть з --delete, щоб видалити orphan/legacy-файли. Legacy originals краще спочатку перенести через tools/migrate_legacy_originals.php.\n";
-    exit(empty($missing) ? 0 : 2);
+    echo "\nЗапустіть з --delete, щоб видалити тільки orphan-файли та verified duplicate legacy originals.\n";
+    echo "Legacy-only або hash-mismatched originals спочатку перевірте через tools/migrate_legacy_originals.php.\n";
+    exit(empty($missing) && $blockedLegacyOriginals === [] ? 0 : 2);
+}
+
+if ($blockedLegacyOriginals !== []) {
+    fwrite(STDERR, "Видалення зупинено: не всі DB-referenced legacy originals мають перевірену ідентичну private copy.\n");
+    fwrite(STDERR, "Спочатку запустіть tools/migrate_legacy_originals.php і повторіть dry-run.\n");
+    release_media_maintenance_lock($mediaMaintenanceLock);
+    exit(2);
 }
 
 $errors = 0;

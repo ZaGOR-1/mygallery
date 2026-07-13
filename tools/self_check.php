@@ -10,8 +10,8 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $sessionPath = storage_path('test_sessions');
-if (!is_dir($sessionPath)) {
-    mkdir($sessionPath, 0755, true);
+if (!ensure_private_directory($sessionPath)) {
+    throw new RuntimeException('Could not prepare private test session directory.');
 }
 
 session_save_path($sessionPath);
@@ -177,7 +177,14 @@ function check_config_files(): void
     assert_true(is_file(project_root_path('config' . DIRECTORY_SEPARATOR . 'config.php')), 'config/config.php missing.');
     assert_true(is_file(project_root_path('config' . DIRECTORY_SEPARATOR . 'database.example.php')), 'config/database.example.php missing.');
     assert_true(is_file(project_root_path('config' . DIRECTORY_SEPARATOR . 'database.php')), 'config/database.php missing.');
-    assert_true((string) app_config()['APP_URL'] !== '', 'APP_URL is empty.');
+    $appUrl = (string) app_config()['APP_URL'];
+    assert_true($appUrl !== '', 'APP_URL is empty.');
+    $parts = parse_url($appUrl);
+    assert_true(is_array($parts) && in_array($parts['scheme'] ?? '', ['http', 'https'], true), 'APP_URL must be an absolute http(s) URL.');
+    assert_true(is_string($parts['host'] ?? null) && $parts['host'] !== '', 'APP_URL host is missing.');
+    assert_true(!isset($parts['user']) && !isset($parts['pass']) && !isset($parts['query']) && !isset($parts['fragment']), 'APP_URL must not contain credentials, query or fragment.');
+    $path = (string) ($parts['path'] ?? '');
+    assert_true(!str_contains($path, '..') && !str_contains($path, '//'), 'APP_URL path is not normalized.');
 }
 
 function check_required_directories(): void
@@ -227,6 +234,31 @@ function check_writable_directories(): void
     }
 }
 
+function check_private_runtime_permissions(): void
+{
+    $privateDirectories = [
+        originals_path(),
+        trash_path(),
+        storage_path('logs'),
+        storage_path('sessions'),
+        storage_path('share_ratelimit'),
+        storage_path('download_locks'),
+    ];
+    foreach ($privateDirectories as $directory) {
+        assert_true(ensure_private_directory($directory), 'Could not enforce private runtime directory: ' . $directory);
+        if (PHP_OS_FAMILY !== 'Windows') {
+            $permissions = fileperms($directory);
+            assert_true(is_int($permissions) && ($permissions & 0077) === 0, 'Runtime directory is group/world accessible: ' . $directory);
+        }
+    }
+
+    foreach ([storage_path('logs/app.log'), storage_path('logs/php-error.log'), media_maintenance_lock_path()] as $file) {
+        if (is_file($file)) {
+            assert_true(enforce_private_file_permissions($file), 'Runtime file is not private: ' . $file);
+        }
+    }
+}
+
 function check_upload_protection_files(): void
 {
     assert_true(is_file(public_path('uploads' . DIRECTORY_SEPARATOR . '.htaccess')), 'public/uploads/.htaccess missing.');
@@ -242,6 +274,7 @@ function check_required_tool_files(): void
         project_root_path('tools' . DIRECTORY_SEPARATOR . 'backup.php'),
         project_root_path('tools' . DIRECTORY_SEPARATOR . 'regenerate_images.php'),
         project_root_path('tools' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'SimpleZipWriter.php'),
+        project_root_path('tools' . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'SafeCliZipOutput.php'),
         public_path('admin' . DIRECTORY_SEPARATOR . 'health.php'),
         public_path('admin' . DIRECTORY_SEPARATOR . 'download.php'),
     ];
@@ -294,6 +327,15 @@ function check_database_schema(): void
 
     $photoColumns = $pdo->query('SHOW COLUMNS FROM photos')->fetchAll(PDO::FETCH_COLUMN);
     assert_true(in_array('lock_version', $photoColumns, true), 'Database column missing: photos.lock_version');
+
+    $shareColumns = $pdo->query('SHOW COLUMNS FROM share_links')->fetchAll(PDO::FETCH_COLUMN);
+    assert_true(in_array('token_hash', $shareColumns, true), 'Database column missing: share_links.token_hash');
+    assert_true(in_array('token_hint', $shareColumns, true), 'Database column missing: share_links.token_hint');
+    $rawTokenCount = (int) $pdo->query("SELECT COUNT(*) FROM share_links WHERE token IS NOT NULL AND token <> ''")->fetchColumn();
+    assert_true($rawTokenCount === 0, 'Legacy raw share tokens remain in the database. Run migrations.');
+    $shareIndexes = $pdo->query('SHOW INDEX FROM share_links')->fetchAll(PDO::FETCH_ASSOC);
+    $shareIndexNames = array_column($shareIndexes, 'Key_name');
+    assert_true(in_array('idx_share_links_token_hash', $shareIndexNames, true), 'Missing unique share token hash index.');
 
     $stmt = $pdo->prepare(
         "SELECT COUNT(*)
@@ -354,6 +396,7 @@ function run_self_check(): void
     check_required_directories();
     check_required_tool_files();
     check_writable_directories();
+    check_private_runtime_permissions();
     check_upload_protection_files();
     check_gitkeep_files();
     check_no_interrupted_restore();

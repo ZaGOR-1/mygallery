@@ -10,6 +10,7 @@ require_once __DIR__ . '/gallery_functions.php';
 require_once __DIR__ . '/share_functions.php';
 require_once __DIR__ . '/media_access_functions.php';
 require_once __DIR__ . '/album_zip_functions.php';
+require_once __DIR__ . '/tag_service.php';
 
 function project_root_path(string $path = ''): string
 {
@@ -79,11 +80,23 @@ function app_http_error(string $message, int $statusCode = 500, ?Throwable $exce
         ? $message . ' ' . $exception->getMessage()
         : $message;
 
+    $errorTitles = [
+        400 => 'Некоректний запит',
+        401 => 'Потрібна авторизація',
+        403 => 'Доступ заборонено',
+        404 => 'Сторінку не знайдено',
+        409 => 'Конфлікт даних',
+        410 => 'Ресурс недоступний',
+        413 => 'Запит завеликий',
+        429 => 'Занадто багато запитів',
+        500 => 'Помилка сервера',
+        503 => 'Сервіс тимчасово недоступний',
+    ];
     $errorStatusCode = $statusCode;
-    $errorTitle = $statusCode === 404 ? 'Сторінку не знайдено' : 'Помилка сервера';
+    $errorTitle = $errorTitles[$statusCode] ?? ($statusCode >= 500 ? 'Помилка сервера' : 'Помилка запиту');
     $errorMessage = $safeMessage;
     $errorDetails = app_debug() && $exception !== null ? $exception->getTraceAsString() : '';
-    $errorPage = public_path($statusCode === 404 ? '404.php' : '500.php');
+    $errorPage = public_path($statusCode >= 500 ? '500.php' : '404.php');
 
     if (is_file($errorPage)) {
         require $errorPage;
@@ -114,26 +127,55 @@ function validate_runtime_config(): void
     }
 }
 
-function required_php_extensions(): array
+function runtime_extension_profile(): string
 {
-    return ['pdo', 'pdo_mysql', 'gd', 'fileinfo', 'exif', 'mbstring', 'zip'];
+    if (defined('MYGALLERY_RUNTIME_PROFILE')) {
+        return (string) constant('MYGALLERY_RUNTIME_PROFILE');
+    }
+
+    if (PHP_SAPI === 'cli') {
+        $script = basename((string) ($_SERVER['SCRIPT_FILENAME'] ?? ''));
+        return match ($script) {
+            'cleanup_runtime.php' => 'maintenance',
+            'migrate.php', 'setup.php' => 'database',
+            'backup.php', 'restore.php', 'verify_backup.php' => 'database-archive',
+            'build_release.php' => 'archive',
+            default => 'full',
+        };
+    }
+
+    return 'full';
 }
 
-function missing_php_extensions(): array
+function required_php_extensions(?string $profile = null): array
+{
+    $profile ??= runtime_extension_profile();
+
+    return match ($profile) {
+        'maintenance' => ['fileinfo'],
+        'database' => ['pdo', 'pdo_mysql'],
+        'archive' => ['zip'],
+        'database-archive' => ['pdo', 'pdo_mysql', 'zip'],
+        default => ['pdo', 'pdo_mysql', 'gd', 'fileinfo', 'exif', 'mbstring', 'zip'],
+    };
+}
+
+function missing_php_extensions(?string $profile = null): array
 {
     return array_values(array_filter(
-        required_php_extensions(),
+        required_php_extensions($profile),
         static fn (string $extension): bool => !extension_loaded($extension)
             || ($extension === 'zip' && !class_exists('ZipArchive'))
     ));
 }
 
-function ensure_required_php_extensions(): void
+function ensure_required_php_extensions(?string $profile = null): void
 {
-    $missing = missing_php_extensions();
+    $missing = missing_php_extensions($profile);
 
     if (!empty($missing)) {
-        app_http_error('Відсутні обов’язкові PHP-розширення: ' . implode(', ', $missing) . '.', 500);
+        app_http_error('Відсутні обов’язкові PHP-розширення для профілю '
+            . ($profile ?? runtime_extension_profile()) . ': ' . implode(', ', $missing) . '.', 500);
     }
 }
 
@@ -150,6 +192,25 @@ function url(string $path = ''): string
     $path = ltrim($path, '/');
 
     return $path === '' ? $basePath . '/' : $basePath . '/' . $path;
+}
+
+function absolute_url(string $path = ''): string
+{
+    $appUrl = rtrim((string) app_config()['APP_URL'], '/');
+    $parts = parse_url($appUrl);
+    if (!is_array($parts)
+        || !in_array(strtolower((string) ($parts['scheme'] ?? '')), ['http', 'https'], true)
+        || !is_string($parts['host'] ?? null)
+        || $parts['host'] === ''
+        || isset($parts['user'])
+        || isset($parts['pass'])
+        || isset($parts['query'])
+        || isset($parts['fragment'])) {
+        throw new RuntimeException('APP_URL не містить валідний HTTP(S) origin.');
+    }
+    $path = ltrim($path, '/');
+
+    return $path === '' ? $appUrl . '/' : $appUrl . '/' . $path;
 }
 
 function local_url(string $path = ''): string
@@ -185,19 +246,127 @@ function app_debug(): bool
     return (bool) (app_config()['APP_DEBUG'] ?? false);
 }
 
+function rotate_runtime_log_unlocked(string $logFile, int $maxSize, int $retention): bool
+{
+    if (is_link($logFile)) {
+        return false;
+    }
+    if (!is_file($logFile)) {
+        return true;
+    }
+
+    $size = filesize($logFile);
+    if (!is_int($size)) {
+        return false;
+    }
+    if ($size <= $maxSize) {
+        return enforce_private_file_permissions($logFile);
+    }
+
+    for ($index = $retention; $index >= 1; $index--) {
+        $source = $index === 1 ? $logFile : $logFile . '.' . ($index - 1);
+        $target = $logFile . '.' . $index;
+        if (!is_file($source)) {
+            continue;
+        }
+        if (is_link($source) || is_link($target)) {
+            return false;
+        }
+        if ($index === $retention && is_file($target)) {
+            if (!@unlink($target)) {
+                return false;
+            }
+        }
+        if (!@rename($source, $target)) {
+            return false;
+        }
+        if (!enforce_private_file_permissions($target)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function with_runtime_log_lock(string $logFile, callable $callback): mixed
+{
+    $lock = open_private_file($logFile . '.rotation.lock', 'c+b');
+    if ($lock === false || !flock($lock, LOCK_EX)) {
+        if (is_resource($lock)) {
+            fclose($lock);
+        }
+
+        return false;
+    }
+
+    try {
+        return $callback();
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+
+function rotate_runtime_log(string $logFile, int $maxSize = 5242880, int $retention = 3): bool
+{
+    return with_runtime_log_lock(
+        $logFile,
+        static function () use ($logFile, $maxSize, $retention): bool {
+            return rotate_runtime_log_unlocked($logFile, $maxSize, $retention);
+        }
+    ) === true;
+}
+
+function append_rotating_private_log(
+    string $logFile,
+    string $line,
+    int $maxSize = 5242880,
+    int $retention = 3
+): bool {
+    if ($maxSize < 1 || $retention < 1 || is_link($logFile) || !ensure_private_directory(dirname($logFile))) {
+        return false;
+    }
+
+    return with_runtime_log_lock(
+        $logFile,
+        static function () use ($logFile, $line, $maxSize, $retention): bool {
+            if (!rotate_runtime_log_unlocked($logFile, $maxSize, $retention)) {
+                return false;
+            }
+
+            return private_file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX) === strlen($line);
+        }
+    ) === true;
+}
+
 function configure_runtime(): void
 {
     $displayErrors = app_debug() ? '1' : '0';
     $logDir = storage_path('logs');
 
-    if (!is_dir($logDir)) {
-        @mkdir($logDir, 0755, true);
+    if (!ensure_private_directory($logDir)) {
+        app_http_error('Папка журналів недоступна для запису.', 500);
+    }
+
+    $phpErrorLog = $logDir . DIRECTORY_SEPARATOR . 'php-error.log';
+    $logPrepared = with_runtime_log_lock(
+        $phpErrorLog,
+        static function () use ($phpErrorLog): bool {
+            if (!rotate_runtime_log_unlocked($phpErrorLog, 5242880, 3)) {
+                return false;
+            }
+
+            return is_file($phpErrorLog) || private_file_put_contents($phpErrorLog, '') !== false;
+        }
+    );
+    if ($logPrepared !== true) {
+        app_http_error('Не вдалося безпечно підготувати журнал PHP.', 500);
     }
 
     ini_set('display_errors', $displayErrors);
     ini_set('display_startup_errors', $displayErrors);
     ini_set('log_errors', '1');
-    ini_set('error_log', $logDir . DIRECTORY_SEPARATOR . 'php-error.log');
+    ini_set('error_log', $phpErrorLog);
 
     validate_runtime_config();
     ensure_required_php_extensions();
@@ -207,19 +376,16 @@ function app_log(string $message): void
 {
     $logDir = storage_path('logs');
 
-    if (!is_dir($logDir)) {
-        @mkdir($logDir, 0755, true);
+    if (!ensure_private_directory($logDir)) {
+        error_log($message);
+        return;
     }
 
     $line = '[' . date('Y-m-d H:i:s') . '] ' . str_replace(["\r", "\n"], ' ', $message) . PHP_EOL;
     $logFile = $logDir . DIRECTORY_SEPARATOR . 'app.log';
+    $written = append_rotating_private_log($logFile, $line);
 
-    $maxSize = 5 * 1024 * 1024; // 5 MB
-    if (file_exists($logFile) && filesize($logFile) > $maxSize) {
-        @rename($logFile, $logFile . '.1');
-    }
-
-    if (!@file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX)) {
+    if (!$written) {
         error_log($message);
     }
 }
@@ -235,34 +401,75 @@ function direct_https_request(): bool
         || (($_SERVER['SERVER_PORT'] ?? '') === '443');
 }
 
+function canonical_ip_address(string $address): ?string
+{
+    $packed = inet_pton(trim($address));
+    if ($packed === false) {
+        return null;
+    }
+
+    $canonical = inet_ntop($packed);
+
+    return is_string($canonical) && $canonical !== '' ? strtolower($canonical) : null;
+}
+
+/** @return list<string> */
+function canonical_ip_list(mixed $addresses): array
+{
+    if (!is_array($addresses)) {
+        return [];
+    }
+
+    $canonical = [];
+    foreach ($addresses as $address) {
+        if (!is_string($address)) {
+            continue;
+        }
+        $normalized = canonical_ip_address($address);
+        if ($normalized !== null) {
+            $canonical[$normalized] = true;
+        }
+    }
+
+    return array_keys($canonical);
+}
+
 function request_from_trusted_proxy(): bool
 {
-    $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
-    $trustedProxies = app_config()['TRUSTED_PROXIES'] ?? [];
+    $remoteAddr = canonical_ip_address(is_string($_SERVER['REMOTE_ADDR'] ?? null) ? $_SERVER['REMOTE_ADDR'] : '');
+    $trustedProxies = canonical_ip_list(app_config()['TRUSTED_PROXIES'] ?? []);
 
-    return is_string($remoteAddr)
-        && $remoteAddr !== ''
-        && is_array($trustedProxies)
+    return $remoteAddr !== null
         && in_array($remoteAddr, $trustedProxies, true);
 }
 
 function client_ip(?array $server = null, ?array $trustedProxies = null, string $default = 'unknown'): string
 {
     $server ??= $_SERVER;
-    $remoteAddr = $server['REMOTE_ADDR'] ?? $default;
-    $remoteAddr = is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : $default;
+    $remoteValue = $server['REMOTE_ADDR'] ?? $default;
+    $remoteAddr = is_string($remoteValue) ? canonical_ip_address($remoteValue) : null;
+    $remoteAddr ??= $default;
 
     if ($trustedProxies === null) {
         $trustedProxies = app_config()['TRUSTED_PROXIES'] ?? [];
     }
+    $trustedProxies = canonical_ip_list($trustedProxies);
 
-    if (is_array($trustedProxies) && in_array($remoteAddr, $trustedProxies, true)) {
+    if (in_array($remoteAddr, $trustedProxies, true)) {
         $forwardedFor = (string) ($server['HTTP_X_FORWARDED_FOR'] ?? '');
-        $candidates = array_map('trim', explode(',', $forwardedFor));
+        $candidates = [];
+        foreach (explode(',', $forwardedFor) as $candidate) {
+            $normalized = canonical_ip_address($candidate);
+            if ($normalized !== null) {
+                $candidates[] = $normalized;
+            }
+        }
 
-        foreach ($candidates as $candidate) {
-            if (filter_var($candidate, FILTER_VALIDATE_IP)) {
-                return $candidate;
+        // Walk from the proxy closest to us toward the client. Trusted hops are
+        // discarded; the first untrusted address is the effective client.
+        for ($index = count($candidates) - 1; $index >= 0; $index--) {
+            if (!in_array($candidates[$index], $trustedProxies, true)) {
+                return $candidates[$index];
             }
         }
     }
@@ -305,6 +512,59 @@ function get_flash_messages(): array
     unset($_SESSION['flash']);
 
     return $messages;
+}
+
+function request_raw_string(array $source, string $key, string $default = '', int $maxLength = 4096): string
+{
+    $value = $source[$key] ?? $default;
+    if (!is_string($value)) {
+        return $default;
+    }
+
+    return strlen($value) > $maxLength ? substr($value, 0, $maxLength) : $value;
+}
+
+function request_string(array $source, string $key, int $maxLength = 255, string $default = ''): string
+{
+    $value = $source[$key] ?? $default;
+    if (!is_string($value) && !is_int($value) && !is_float($value)) {
+        return $default;
+    }
+
+    $value = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', (string) $value) ?? '';
+
+    return text_limit(trim($value), $maxLength);
+}
+
+function request_int(array $source, string $key, ?int $default = null, ?int $minimum = null, ?int $maximum = null): ?int
+{
+    $value = $source[$key] ?? null;
+    if (!is_string($value) && !is_int($value)) {
+        return $default;
+    }
+
+    $parsed = filter_var($value, FILTER_VALIDATE_INT);
+    if (!is_int($parsed)) {
+        return $default;
+    }
+    if ($minimum !== null && $parsed < $minimum) {
+        return $default;
+    }
+    if ($maximum !== null && $parsed > $maximum) {
+        return $default;
+    }
+
+    return $parsed;
+}
+
+function request_string_list(array $source, string $key, int $maximumItems = 500): array
+{
+    $value = $source[$key] ?? [];
+    if (!is_array($value) || count($value) > $maximumItems) {
+        return [];
+    }
+
+    return array_values(array_filter($value, static fn (mixed $item): bool => is_string($item) || is_int($item)));
 }
 
 function get_int(string $key): ?int
@@ -434,6 +694,9 @@ function get_album_id_from_post(string $key = 'album_id'): ?int
     if ($raw === null || $raw === '') {
         return null;
     }
+    if (!is_string($raw) && !is_int($raw)) {
+        throw new InvalidArgumentException('Некоректний альбом.');
+    }
 
     $id = filter_var($raw, FILTER_VALIDATE_INT);
 
@@ -522,15 +785,16 @@ function invalid_album_cover_count(): int
     return (int) $stmt->fetchColumn();
 }
 
-function album_exists(int $id): bool
+function album_exists(int $id, ?PDO $pdo = null): bool
 {
-    $stmt = db()->prepare('SELECT COUNT(*) FROM albums WHERE id = :id');
+    $pdo ??= db();
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM albums WHERE id = :id');
     $stmt->execute(['id' => $id]);
 
     return (int) $stmt->fetchColumn() > 0;
 }
 
-function find_or_create_album(string $name, int $isPrivate = 0): int
+function find_or_create_album(string $name, int $isPrivate = 0, ?PDO $pdo = null): int
 {
     $name = clean_album_name($name);
 
@@ -538,11 +802,38 @@ function find_or_create_album(string $name, int $isPrivate = 0): int
         throw new InvalidArgumentException('Назва альбому не може бути порожньою.');
     }
 
-    $stmt = db()->prepare(
+    $pdo ??= db();
+    $stmt = $pdo->prepare(
         'INSERT INTO albums (name, is_private) VALUES (:name, :is_private)
         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)'
     );
     $stmt->execute(['name' => $name, 'is_private' => $isPrivate]);
+
+    return (int) $pdo->lastInsertId();
+}
+
+function create_album_strict(string $name, int $isPrivate = 0): int
+{
+    $name = clean_album_name($name);
+    if ($name === '') {
+        throw new InvalidArgumentException('Назва альбому не може бути порожньою.');
+    }
+
+    $existing = db()->prepare('SELECT id FROM albums WHERE name = ? LIMIT 1');
+    $existing->execute([$name]);
+    if ($existing->fetchColumn() !== false) {
+        throw new InvalidArgumentException('Альбом із такою назвою вже існує; його приватність не змінено.');
+    }
+
+    try {
+        $stmt = db()->prepare('INSERT INTO albums (name, is_private) VALUES (?, ?)');
+        $stmt->execute([$name, $isPrivate === 1 ? 1 : 0]);
+    } catch (PDOException $exception) {
+        if ($exception->getCode() === '23000') {
+            throw new InvalidArgumentException('Альбом із такою назвою вже існує; його приватність не змінено.', 0, $exception);
+        }
+        throw $exception;
+    }
 
     return (int) db()->lastInsertId();
 }
@@ -550,7 +841,7 @@ function find_or_create_album(string $name, int $isPrivate = 0): int
 function resolve_album_id_from_post(): ?int
 {
     $albumId = get_album_id_from_post('album_id');
-    $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
+    $newAlbumName = clean_album_name(request_string($_POST, 'new_album_name', 100));
 
     if ($newAlbumName !== '') {
         return find_or_create_album($newAlbumName);
@@ -685,7 +976,7 @@ function tag_exists(int $id): bool
     return (int) $stmt->fetchColumn() > 0;
 }
 
-function find_or_create_tag(string $name): int
+function find_or_create_tag(string $name, ?PDO $pdo = null): int
 {
     $name = clean_tag_name($name);
 
@@ -693,7 +984,8 @@ function find_or_create_tag(string $name): int
         throw new InvalidArgumentException('Назва тегу не може бути порожньою.');
     }
 
-    $stmt = db()->prepare(
+    $pdo ??= db();
+    $stmt = $pdo->prepare(
         'INSERT INTO tags (name, slug) VALUES (:name, :slug)
         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), name = VALUES(name)'
     );
@@ -702,22 +994,23 @@ function find_or_create_tag(string $name): int
         'slug' => tag_slug($name),
     ]);
 
-    return (int) db()->lastInsertId();
+    return (int) $pdo->lastInsertId();
 }
 
-function sync_photo_tags(int $photoId, array $tagNames): void
+function sync_photo_tags(int $photoId, array $tagNames, ?PDO $pdo = null): void
 {
-    $deleteStmt = db()->prepare('DELETE FROM photo_tags WHERE photo_id = :photo_id');
+    $pdo ??= db();
+    $deleteStmt = $pdo->prepare('DELETE FROM photo_tags WHERE photo_id = :photo_id');
     $deleteStmt->execute(['photo_id' => $photoId]);
 
     if (empty($tagNames)) {
         return;
     }
 
-    $insertStmt = db()->prepare('INSERT IGNORE INTO photo_tags (photo_id, tag_id) VALUES (:photo_id, :tag_id)');
+    $insertStmt = $pdo->prepare('INSERT IGNORE INTO photo_tags (photo_id, tag_id) VALUES (:photo_id, :tag_id)');
 
     foreach ($tagNames as $tagName) {
-        $tagId = find_or_create_tag($tagName);
+        $tagId = find_or_create_tag($tagName, $pdo);
         $insertStmt->execute([
             'photo_id' => $photoId,
             'tag_id' => $tagId,
@@ -783,34 +1076,28 @@ function text_limit(string $text, int $length): string
 
 function normalize_gallery_filters(array $input): array
 {
-    $dateFrom = normalize_date_query((string) ($input['date_from'] ?? ''));
-    $dateTo = normalize_date_query((string) ($input['date_to'] ?? ''));
+    $dateFrom = normalize_date_query(request_string($input, 'date_from', 10));
+    $dateTo = normalize_date_query(request_string($input, 'date_to', 10));
 
     if ($dateFrom !== '' && $dateTo !== '' && $dateFrom > $dateTo) {
         [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
     }
 
-    $sort = (string) ($input['sort'] ?? 'newest');
+    $sort = request_string($input, 'sort', 32, 'newest');
     $sortOptions = ['newest', 'oldest', 'taken_newest', 'taken_oldest', 'title_az', 'title_za'];
     if (!in_array($sort, $sortOptions, true)) {
         $sort = 'newest';
     }
 
-    $albumId = isset($input['album_id']) && $input['album_id'] !== '' ? (int) $input['album_id'] : null;
-    $tagId = isset($input['tag_id']) && $input['tag_id'] !== '' ? (int) $input['tag_id'] : null;
-
-    if ($albumId < 1) $albumId = null;
-    if ($tagId < 1) $tagId = null;
-
     return [
-        'q' => text_limit(trim((string) ($input['q'] ?? '')), 120),
-        'camera' => text_limit(trim((string) ($input['camera'] ?? '')), 150),
-        'album_id' => $albumId,
-        'tag_id' => $tagId,
+        'q' => request_string($input, 'q', 120),
+        'camera' => request_string($input, 'camera', 150),
+        'album_id' => request_int($input, 'album_id', null, 1),
+        'tag_id' => request_int($input, 'tag_id', null, 1),
         'date_from' => $dateFrom,
         'date_to' => $dateTo,
         'sort' => $sort,
-        'page' => max(1, (int) ($input['page'] ?? 1)),
+        'page' => request_int($input, 'page', 1, 1) ?? 1,
     ];
 }
 

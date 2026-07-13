@@ -20,6 +20,7 @@ assert_true(release_should_exclude('CLAUDE.md', false), 'CLAUDE.md should be exc
 assert_true(release_should_exclude('GEMINI.md', false), 'GEMINI.md should be excluded');
 assert_true(release_should_exclude('audit.md', false), 'audit.md should be excluded');
 assert_true(release_should_exclude('FULL_PROJECT_AUDIT.md', false), 'FULL_PROJECT_AUDIT.md should be excluded');
+assert_true(release_should_exclude('MYGALLERY_AUDIT.md', false), 'canonical internal audit source should be excluded');
 assert_true(release_should_exclude('mygallery99_ai_audit_prompt.md', false), 'arbitrary root audit prompts should be excluded');
 assert_true(release_should_exclude('audit-new-policy.md', false), 'arbitrary root audit docs should be excluded by allowlist');
 assert_true(release_should_exclude('provirka.md', false), 'provirka.md should be excluded');
@@ -69,6 +70,7 @@ assert_true(release_forbidden_reason('mygallery/.github/workflows/build_release.
 assert_true(release_forbidden_reason('mygallery/AGENTS.md') !== null, 'AGENTS.md forbidden');
 assert_true(release_forbidden_reason('mygallery/audit.md') !== null, 'audit.md forbidden');
 assert_true(release_forbidden_reason('mygallery/FULL_PROJECT_AUDIT.md') !== null, 'FULL_PROJECT_AUDIT.md forbidden');
+assert_true(release_forbidden_reason('mygallery/MYGALLERY_AUDIT.md') !== null, 'canonical internal audit source forbidden');
 assert_true(release_forbidden_reason('mygallery/mygallery99_ai_audit_prompt.md') !== null, 'arbitrary root audit prompt forbidden');
 assert_true(release_forbidden_reason('mygallery/provirka.md') !== null, 'provirka.md forbidden');
 assert_true(release_forbidden_reason('mygallery/docs/AI_RELEASE_AUDIT.md') !== null, 'AI release audit doc forbidden');
@@ -95,4 +97,140 @@ assert_true(release_forbidden_reason('mygallery/public/uploads/large/.htaccess')
 assert_true(release_forbidden_reason('mygallery/public/uploads/thumbnails/.htaccess') === null, 'thumbnails/.htaccess allowed');
 
 $releaseBuilderSource = (string) file_get_contents(dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'build_release.php');
-assert_true(str_contains($releaseBuilderSource, 'release_verify_zip_streams($output, count($entries))'), 'release builder must reopen and read every finished ZIP stream');
+$gitignore = (string) file_get_contents(dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . '.gitignore');
+assert_true(str_contains($releaseBuilderSource, "release_verify_zip_streams(\$safeOutput['temporary'], count(\$entries), \$projectName, \$inventory)"), 'release builder must reopen and hash every finished ZIP stream before publish');
+assert_false(str_contains($releaseBuilderSource, '$iterator->next();'), 'release exclusion pruning must not skip the next allowed sibling');
+assert_true(str_contains($releaseBuilderSource, 'new RecursiveCallbackFilterIterator'), 'release builder must prune excluded directory trees safely');
+assert_true(str_contains($releaseBuilderSource, '$item->isLink() || is_link($path)'), 'release builder must reject symlink payloads');
+assert_true(str_contains($releaseBuilderSource, 'proc_open('), 'release Git probing must avoid platform-specific shell redirection');
+assert_true(str_contains($releaseBuilderSource, "['ls-tree', '-r', '--name-only', '-z', \$sourceCommit]"), 'clean release payload must come from the exact source commit tree');
+assert_true(str_contains($releaseBuilderSource, "['ls-files', '-z', '--cached', '--others', '--exclude-standard']"), 'dirty emergency build must include only tracked/non-ignored Git paths');
+assert_true(str_contains($releaseBuilderSource, 'SOURCE_DATE_EPOCH'), 'release builder must support reproducible source timestamps');
+assert_true(str_contains($releaseBuilderSource, 'usort('), 'release payload order must be canonical');
+assert_true(str_contains($releaseBuilderSource, 'release_apply_zip_metadata'), 'release entries must receive canonical timestamps and modes');
+assert_true(str_contains($releaseBuilderSource, "'.sha256'"), 'release builder must publish a checksum sidecar');
+assert_true(str_contains($releaseBuilderSource, "'.provenance.json'"), 'release builder must publish a provenance sidecar');
+assert_true(str_contains($gitignore, 'dist/*.zip.sha256') && str_contains($gitignore, 'dist/*.zip.provenance.json'), 'generated release sidecars must stay outside source status');
+
+function remove_release_test_tree(string $path): void
+{
+    if (!is_dir($path)) {
+        return;
+    }
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($iterator as $item) {
+        /** @var SplFileInfo $item */
+        if ($item->isDir() && !$item->isLink()) {
+            @chmod($item->getPathname(), 0700);
+            rmdir($item->getPathname());
+        } else {
+            @chmod($item->getPathname(), 0600);
+            unlink($item->getPathname());
+        }
+    }
+    @chmod($path, 0700);
+    rmdir($path);
+}
+
+$gitPayloadDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mygallery_release_git_' . bin2hex(random_bytes(6));
+assert_true(mkdir($gitPayloadDir, 0700), 'release Git inventory test directory should be created');
+try {
+    assert_true(release_git_output($gitPayloadDir, ['init']) !== null, 'temporary release repository should initialize');
+    assert_true(release_git_output($gitPayloadDir, ['config', 'user.email', 'tests@example.invalid']) !== null, 'temporary repository should configure an email');
+    assert_true(release_git_output($gitPayloadDir, ['config', 'user.name', 'MyGallery Tests']) !== null, 'temporary repository should configure a user');
+    assert_true(file_put_contents($gitPayloadDir . DIRECTORY_SEPARATOR . '.gitignore', ".idea/\n.vscode/\n*.secret\n") !== false, 'release Git ignore fixture should be written');
+    assert_true(mkdir($gitPayloadDir . DIRECTORY_SEPARATOR . 'public', 0700), 'tracked source directory should be created');
+    assert_true(file_put_contents($gitPayloadDir . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'index.php', "<?php echo 'ok';\n") !== false, 'tracked source fixture should be written');
+    assert_true(release_git_output($gitPayloadDir, ['add', '--', '.']) !== null, 'temporary source should be staged');
+    assert_true(release_git_output($gitPayloadDir, ['commit', '-m', 'fixture']) !== null, 'temporary source should be committed');
+    $fixtureCommit = release_git_output($gitPayloadDir, ['rev-parse', 'HEAD']);
+    assert_true(is_string($fixtureCommit) && $fixtureCommit !== '', 'temporary source commit should be available');
+
+    assert_true(mkdir($gitPayloadDir . DIRECTORY_SEPARATOR . '.idea', 0700), 'ignored IDE directory should be created');
+    assert_true(mkdir($gitPayloadDir . DIRECTORY_SEPARATOR . '.vscode', 0700), 'ignored editor directory should be created');
+    assert_true(file_put_contents($gitPayloadDir . DIRECTORY_SEPARATOR . '.idea' . DIRECTORY_SEPARATOR . 'workspace.xml', '<secret/>') !== false, 'ignored IDE file should be written');
+    assert_true(file_put_contents($gitPayloadDir . DIRECTORY_SEPARATOR . '.vscode' . DIRECTORY_SEPARATOR . 'settings.json', '{}') !== false, 'ignored editor file should be written');
+    assert_true(file_put_contents($gitPayloadDir . DIRECTORY_SEPARATOR . 'local.secret', 'credential') !== false, 'custom ignored file should be written');
+    assert_true(file_put_contents($gitPayloadDir . DIRECTORY_SEPARATOR . 'Thumbs.db', 'ignored by info exclude') !== false, 'info-exclude fixture should be written');
+    assert_true(file_put_contents($gitPayloadDir . DIRECTORY_SEPARATOR . '.git' . DIRECTORY_SEPARATOR . 'info' . DIRECTORY_SEPARATOR . 'exclude', "Thumbs.db\n") !== false, 'Git info exclude fixture should be written');
+
+    $cleanPayload = release_git_payload_paths($gitPayloadDir, (string) $fixtureCommit, false);
+    sort($cleanPayload, SORT_STRING);
+    assert_equals(['.gitignore', 'public/index.php'], $cleanPayload, 'clean payload must contain only files tracked by the exact source commit');
+    $cleanEntries = release_source_entries_from_git_paths($gitPayloadDir, $cleanPayload);
+    $cleanEntryPaths = array_values(array_map(
+        static fn (array $entry): string => $entry['relative'],
+        array_filter($cleanEntries, static fn (array $entry): bool => !$entry['directory'])
+    ));
+    sort($cleanEntryPaths, SORT_STRING);
+    assert_equals(['public/index.php'], $cleanEntryPaths, 'ignored workspace payload must never reach clean release entries');
+} finally {
+    remove_release_test_tree($gitPayloadDir);
+}
+
+$releaseTestDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mygallery_release_verify_' . bin2hex(random_bytes(6));
+assert_true(mkdir($releaseTestDir, 0700), 'release verifier test directory should be created');
+$releaseZip = $releaseTestDir . DIRECTORY_SEPARATOR . 'release.zip';
+$payload = 'verified-release-payload';
+$inventory = ['file.txt' => ['sha256' => hash('sha256', $payload), 'size' => strlen($payload)]];
+try {
+    assert_true(release_path_is_inside_root($releaseTestDir, $releaseTestDir), 'release root must contain itself');
+    assert_false(release_path_is_inside_root($releaseTestDir, dirname($releaseTestDir)), 'release root must reject parent paths');
+    assert_equals(null, release_git_output($releaseTestDir, ['rev-parse', 'HEAD']), 'Git probe must fail closed outside a repository');
+    assert_equals(
+        ['public/index.php', '.idea/workspace.xml'],
+        release_parse_nul_paths("public/index.php\0.idea/workspace.xml\0"),
+        'NUL-delimited Git payload paths must be parsed without filesystem discovery'
+    );
+    assert_equals(null, release_normalize_git_path('../outside.php'), 'Git payload path traversal must be rejected');
+    assert_equals(null, release_normalize_git_path('public\\index.php'), 'Git payload backslashes must be rejected');
+
+    $previousEpoch = getenv('SOURCE_DATE_EPOCH');
+    putenv('SOURCE_DATE_EPOCH=1700000001');
+    $epochPolicy = release_build_epoch(null);
+    assert_equals(1700000000, $epochPolicy['epoch'], 'SOURCE_DATE_EPOCH must be normalized to ZIP two-second precision');
+    assert_true($epochPolicy['reproducible'], 'valid SOURCE_DATE_EPOCH must mark metadata reproducible');
+    if ($previousEpoch === false) {
+        putenv('SOURCE_DATE_EPOCH');
+    } else {
+        putenv('SOURCE_DATE_EPOCH=' . $previousEpoch);
+    }
+
+    $sidecar = $releaseTestDir . DIRECTORY_SEPARATOR . 'release.sha256';
+    release_write_sidecar($sidecar, "checksum\n");
+    assert_equals("checksum\n", file_get_contents($sidecar), 'release sidecar must be written atomically');
+    assert_throws(
+        static fn () => release_write_sidecar($sidecar, "overwrite\n"),
+        RuntimeException::class,
+        'release sidecars must not be overwritten'
+    );
+
+    $zip = new ZipArchive();
+    assert_true($zip->open($releaseZip, ZipArchive::CREATE | ZipArchive::OVERWRITE) === true, 'release verifier fixture should open');
+    assert_true($zip->addEmptyDir('mygallery'), 'release verifier root should be added');
+    assert_true($zip->addFromString('mygallery/file.txt', $payload), 'release verifier payload should be added');
+    assert_true($zip->addFromString('mygallery/BUILD_INFO.json', json_encode([
+        'payload_sha256_inventory' => $inventory,
+    ], JSON_THROW_ON_ERROR)), 'release verifier BUILD_INFO should be added');
+    assert_true($zip->close(), 'release verifier fixture should close');
+    release_verify_zip_streams($releaseZip, 3, 'mygallery', $inventory);
+
+    $wrongInventory = $inventory;
+    $wrongInventory['file.txt']['sha256'] = str_repeat('0', 64);
+    assert_throws(
+        static fn () => release_verify_zip_streams($releaseZip, 3, 'mygallery', $wrongInventory),
+        RuntimeException::class,
+        'release verifier must reject inventory/payload disagreement'
+    );
+} finally {
+    if (isset($sidecar) && is_file($sidecar)) {
+        unlink($sidecar);
+    }
+    if (is_file($releaseZip)) {
+        unlink($releaseZip);
+    }
+    rmdir($releaseTestDir);
+}

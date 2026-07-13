@@ -21,6 +21,7 @@ $uploadMaxFilesize = size_to_bytes((string) ini_get('upload_max_filesize'));
 $appUploadLimit = (int) app_config()['UPLOAD_MAX_SIZE'];
 $maxSingleFileSize = $uploadMaxFilesize > 0 ? min($appUploadLimit, $uploadMaxFilesize) : $appUploadLimit;
 $maxTotalPostSize = $postMaxSize > 0 ? $postMaxSize : 0;
+$isAsyncUpload = strtolower((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
 
 try {
     $albumOptions = get_album_options(false, true);
@@ -30,15 +31,11 @@ try {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
-    $titleInput = trim((string) ($_POST['title'] ?? ''));
-    $descriptionInput = clean_description((string) ($_POST['description'] ?? ''));
-    $tagsInput = (string) ($_POST['tags'] ?? '');
-    
-    $rawAlbumId = $_POST['album_id'] ?? null;
-    if ($rawAlbumId !== null && $rawAlbumId !== '') {
-        $selectedAlbumId = (int) $rawAlbumId;
-    }
+    $newAlbumName = clean_album_name(request_string($_POST, 'new_album_name', 100));
+    $titleInput = request_string($_POST, 'title', 255);
+    $descriptionInput = clean_description(request_raw_string($_POST, 'description', '', description_max_length() + 1));
+    $tagsInput = request_string($_POST, 'tags', 500);
+    $selectedAlbumId = request_int($_POST, 'album_id', null, 1);
 
     $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
     $requestTooLarge = $maxTotalPostSize > 0 && $contentLength > $maxTotalPostSize;
@@ -59,18 +56,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $count = count($filesPost['name']);
                 for ($i = 0; $i < $count; $i++) {
                     if (($filesPost['error'][$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                        $name = $filesPost['name'][$i] ?? '';
+                        $type = $filesPost['type'][$i] ?? '';
+                        $tmpName = $filesPost['tmp_name'][$i] ?? '';
+                        $error = $filesPost['error'][$i] ?? UPLOAD_ERR_NO_FILE;
+                        $size = $filesPost['size'][$i] ?? 0;
+                        if (!is_string($name) || !is_string($type) || !is_string($tmpName)
+                            || (!is_int($error) && !is_string($error))
+                            || (!is_int($size) && !is_string($size))) {
+                            $errors[] = 'Некоректна структура upload-запиту.';
+                            continue;
+                        }
                         $files[] = [
-                            'name' => (string) $filesPost['name'][$i],
-                            'type' => (string) $filesPost['type'][$i],
-                            'tmp_name' => (string) $filesPost['tmp_name'][$i],
-                            'error' => (int) $filesPost['error'][$i],
-                            'size' => (int) $filesPost['size'][$i],
+                            'name' => $name,
+                            'type' => $type,
+                            'tmp_name' => $tmpName,
+                            'error' => (int) $error,
+                            'size' => (int) $size,
                         ];
                     }
                 }
             } else {
                 if (($filesPost['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-                    $files[] = $filesPost;
+                    $name = $filesPost['name'] ?? '';
+                    $type = $filesPost['type'] ?? '';
+                    $tmpName = $filesPost['tmp_name'] ?? '';
+                    $error = $filesPost['error'] ?? UPLOAD_ERR_NO_FILE;
+                    $size = $filesPost['size'] ?? 0;
+                    if (!is_string($name) || !is_string($type) || !is_string($tmpName)
+                        || (!is_int($error) && !is_string($error))
+                        || (!is_int($size) && !is_string($size))) {
+                        $errors[] = 'Некоректна структура upload-запиту.';
+                    } else {
+                        $files[] = [
+                            'name' => $name,
+                            'type' => $type,
+                            'tmp_name' => $tmpName,
+                            'error' => (int) $error,
+                            'size' => (int) $size,
+                        ];
+                    }
                 }
             }
         }
@@ -118,6 +143,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($fileErrors as $err) {
                 set_flash('error', $err);
             }
+            if ($isAsyncUpload) {
+                send_security_headers();
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'ok' => true,
+                    'redirect' => absolute_url('admin/index.php'),
+                    'uploaded' => $successCount,
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+                exit;
+            }
             redirect('admin/index.php');
         } else {
             foreach ($fileErrors as $err) {
@@ -125,6 +160,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+}
+
+if ($isAsyncUpload && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    send_security_headers();
+    http_response_code(422);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'ok' => false,
+        'errors' => $errors === [] ? ['Не вдалося завантажити фотографії.'] : array_values($errors),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    exit;
 }
 
 require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php';
@@ -180,6 +226,11 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
                 <?php endif; ?>
             </p>
         <?php endif; ?>
+        <div class="upload-progress" id="upload-progress-panel" hidden>
+            <label for="upload-progress-bar">Прогрес передавання</label>
+            <progress id="upload-progress-bar" max="100" value="0">0%</progress>
+            <p id="upload-progress-status" role="status" aria-live="polite" aria-atomic="true">Очікування завантаження.</p>
+        </div>
         <button class="button" type="submit">Завантажити</button>
     </form>
 </section>

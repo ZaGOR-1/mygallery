@@ -12,6 +12,8 @@
 - кнопки копіювання share links через Clipboard API з fallback;
 - компактні `<details>`-панелі фільтрів;
 - drag-and-drop зона для JPEG upload;
+- skip-to-content link, live regions для flash/copy/upload, видимий clipboard failure і byte-level upload progress із no-JS fallback;
+- `prefers-reduced-motion`, table captions і scoped column headers у статистиці/health;
 - окремий Trash UI для restore/purge;
 - user-friendly 404/500/share/CSRF error pages;
 - dark-only theme: перемикач light/dark навмисно видалений.
@@ -25,7 +27,7 @@
 - вручну перевіряти повну keyboard navigation у public gallery, lightbox і всіх admin forms;
 - підтримувати помітний `:focus-visible` без залежності від кольору;
 - перевіряти contrast тексту, badges, disabled/error states через WCAG tooling;
-- для динамічних copy/upload повідомлень використовувати коректні `aria-live` regions, якщо поведінка змінюється.
+- regression-перевіряти `aria-live`, progress та focus target після змін shared layout/upload/copy behavior.
 
 ### Mobile and slow-network QA
 

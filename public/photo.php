@@ -25,10 +25,16 @@ if (!$photo) {
     exit;
 }
 
-if ((int) ($photo['album_is_private'] ?? 0) === 1 && !is_admin_logged_in()) {
+$isPrivatePhoto = (int) ($photo['album_is_private'] ?? 0) === 1;
+if ($isPrivatePhoto && !is_admin_logged_in()) {
     http_response_code(404);
     require __DIR__ . DIRECTORY_SEPARATOR . '404.php';
     exit;
+}
+
+if ($isPrivatePhoto) {
+    $GLOBALS['mygallery_referrer_policy'] = 'no-referrer';
+    send_private_cache_headers();
 }
 
 try {

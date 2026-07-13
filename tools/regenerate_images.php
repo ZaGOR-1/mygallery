@@ -24,7 +24,7 @@ $regenerateLarge = isset($options['all']) || isset($options['large']);
 $regenerateThumbnails = isset($options['all']) || isset($options['thumbnails']);
 $dryRun = isset($options['dry-run']);
 $photoId = isset($options['photo-id']) ? filter_var($options['photo-id'], FILTER_VALIDATE_INT) : null;
-$mediaMaintenanceLock = $dryRun ? null : acquire_media_maintenance_lock(LOCK_SH);
+$mediaMaintenanceLock = $dryRun ? null : acquire_media_maintenance_lock(LOCK_EX);
 
 if (!$regenerateLarge && !$regenerateThumbnails) {
     fwrite(STDERR, "Вкажіть --all, --large або --thumbnails.\n");
@@ -47,8 +47,8 @@ function regenerate_original_path(array $photo): ?string
 function regenerate_atomic_jpeg(callable $callback, string $destination): void
 {
     $dir = dirname($destination);
-    if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
-        throw new RuntimeException('Не вдалося створити папку: ' . $dir);
+    if (!ensure_shared_directory($dir)) {
+        throw new RuntimeException('Не вдалося створити безпечну папку: ' . $dir);
     }
 
     $tmp = tempnam($dir, basename($destination) . '.tmp.');
@@ -60,6 +60,9 @@ function regenerate_atomic_jpeg(callable $callback, string $destination): void
         $callback($tmp);
         if (!rename($tmp, $destination)) {
             throw new RuntimeException('Не вдалося замінити файл: ' . $destination);
+        }
+        if (!enforce_shared_file_permissions($destination)) {
+            throw new RuntimeException('Не вдалося встановити безпечні права файла: ' . $destination);
         }
     } catch (Throwable $exception) {
         if (is_file($tmp)) {

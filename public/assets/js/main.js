@@ -1,5 +1,14 @@
 document.addEventListener('DOMContentLoaded', function () {
     var selectAllPhotos = document.getElementById('select-all-photos');
+    var liveStatus = document.getElementById('app-live-status');
+
+    function announceStatus(message) {
+        if (!liveStatus) return;
+        liveStatus.textContent = '';
+        window.setTimeout(function () {
+            liveStatus.textContent = message;
+        }, 20);
+    }
 
     if (selectAllPhotos) {
         selectAllPhotos.addEventListener('change', function () {
@@ -44,20 +53,36 @@ document.addEventListener('DOMContentLoaded', function () {
             event.preventDefault();
             var text = button.getAttribute('data-copy-text') || '';
             if (text === '') return;
+            var originalText = button.textContent;
 
-            navigator.clipboard.writeText(text).then(function () {
-                var originalText = button.textContent;
-                button.textContent = 'Скопійовано! ✔';
-                button.style.borderColor = 'var(--success)';
-                button.style.color = 'var(--success)';
-                
-                setTimeout(function () {
+            function restoreCopyButton() {
+                window.setTimeout(function () {
                     button.textContent = originalText;
                     button.style.borderColor = '';
                     button.style.color = '';
-                }, 2000);
+                }, 2500);
+            }
+
+            if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+                button.textContent = 'Копіювання недоступне';
+                announceStatus('Автоматичне копіювання недоступне. Виділіть і скопіюйте посилання вручну.');
+                restoreCopyButton();
+                return;
+            }
+
+            navigator.clipboard.writeText(text).then(function () {
+                button.textContent = 'Скопійовано! ✔';
+                button.style.borderColor = 'var(--success)';
+                button.style.color = 'var(--success)';
+                announceStatus('Посилання скопійовано в буфер обміну.');
+                restoreCopyButton();
             }).catch(function (err) {
                 console.error('Не вдалося скопіювати:', err);
+                button.textContent = 'Не вдалося скопіювати';
+                button.style.borderColor = 'var(--danger)';
+                button.style.color = 'var(--danger)';
+                announceStatus('Не вдалося скопіювати посилання. Виділіть і скопіюйте його вручну.');
+                restoreCopyButton();
             });
         });
     });
@@ -133,8 +158,27 @@ document.addEventListener('DOMContentLoaded', function () {
                     alert('Загальний розмір файлів перевищує дозволений розмір пакета.');
                     return;
                 }
-                
+
                 var btn = uploadForm.querySelector('button[type="submit"]');
+                var progressPanel = document.getElementById('upload-progress-panel');
+                var progressBar = document.getElementById('upload-progress-bar');
+                var progressStatus = document.getElementById('upload-progress-status');
+
+                function setUploadStatus(message) {
+                    if (progressStatus) progressStatus.textContent = message;
+                    announceStatus(message);
+                }
+
+                function restoreUploadForm(message) {
+                    if (btn) {
+                        btn.textContent = btn.dataset.originalText || 'Завантажити';
+                        btn.disabled = false;
+                        btn.style.opacity = '';
+                        btn.style.cursor = '';
+                    }
+                    setUploadStatus(message);
+                }
+
                 if (btn) {
                     btn.dataset.originalText = btn.textContent;
                     btn.textContent = 'Завантаження ' + files.length + ' файлів... Зачекайте';
@@ -142,7 +186,53 @@ document.addEventListener('DOMContentLoaded', function () {
                     btn.style.opacity = '0.7';
                     btn.style.cursor = 'wait';
                 }
-                // allow form to submit
+
+                if (!window.FormData || !window.XMLHttpRequest) {
+                    return;
+                }
+
+                e.preventDefault();
+                if (progressPanel) progressPanel.hidden = false;
+                if (progressBar) progressBar.value = 0;
+                setUploadStatus('Починається передавання ' + files.length + ' файлів.');
+
+                var request = new XMLHttpRequest();
+                request.open('POST', uploadForm.action, true);
+                request.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                request.upload.addEventListener('progress', function (progressEvent) {
+                    if (!progressEvent.lengthComputable) return;
+                    var percent = Math.min(100, Math.round((progressEvent.loaded / progressEvent.total) * 100));
+                    if (progressBar) {
+                        progressBar.value = percent;
+                        progressBar.textContent = percent + '%';
+                    }
+                    setUploadStatus('Передано ' + percent + '%.');
+                });
+                request.upload.addEventListener('load', function () {
+                    setUploadStatus('Файли передано. Сервер обробляє зображення.');
+                });
+                request.addEventListener('load', function () {
+                    var response = null;
+                    try {
+                        response = JSON.parse(request.responseText);
+                    } catch (parseError) {
+                        response = null;
+                    }
+                    if (request.status >= 200 && request.status < 300 && response && response.ok && response.redirect) {
+                        setUploadStatus('Завантаження завершено. Перехід до галереї.');
+                        window.location.assign(response.redirect);
+                        return;
+                    }
+                    var errors = response && Array.isArray(response.errors) ? response.errors.join(' ') : 'Не вдалося завантажити фотографії.';
+                    restoreUploadForm(errors);
+                });
+                request.addEventListener('error', function () {
+                    restoreUploadForm('Мережева помилка під час завантаження. Файли можна надіслати повторно.');
+                });
+                request.addEventListener('abort', function () {
+                    restoreUploadForm('Завантаження скасовано.');
+                });
+                request.send(new FormData(uploadForm));
             });
         }
     }

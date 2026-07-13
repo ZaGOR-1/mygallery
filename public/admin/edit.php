@@ -45,18 +45,16 @@ try {
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'photo_service.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $newAlbumName = clean_album_name((string) ($_POST['new_album_name'] ?? ''));
-    $tagsInput = (string) ($_POST['tags'] ?? '');
+    $newAlbumName = clean_album_name(request_string($_POST, 'new_album_name', 100));
+    $tagsInput = request_string($_POST, 'tags', 500);
     
-    $rawAlbumId = $_POST['album_id'] ?? null;
-    if ($rawAlbumId !== null && $rawAlbumId !== '') {
-        $selectedAlbumId = (int) $rawAlbumId;
-    }
+    $postedAlbumId = request_int($_POST, 'album_id', null, 1);
+    $selectedAlbumId = $postedAlbumId;
 
     require_csrf();
 
-    $title = trim((string) ($_POST['title'] ?? ''));
-    $description = clean_description((string) ($_POST['description'] ?? ''));
+    $title = request_string($_POST, 'title', 255);
+    $description = clean_description(request_raw_string($_POST, 'description', '', description_max_length() + 1));
 
     if ($title === '') {
         $errors[] = 'Назва не може бути порожньою.';
@@ -76,9 +74,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$stmt = db()->prepare('SELECT id, token, expires_at FROM share_links WHERE photo_id = ? ORDER BY created_at DESC, id DESC');
+$stmt = db()->prepare('SELECT id, token_hint, expires_at FROM share_links WHERE photo_id = ? ORDER BY created_at DESC, id DESC');
 $stmt->execute([$id]);
 $shareLinks = $stmt->fetchAll();
+$newPhotoShareUrl = pull_one_time_secret('photo_share_' . $id);
 
 require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'header.php';
 ?>
@@ -96,7 +95,7 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
     <form method="post" action="<?= h(url('admin/edit.php')) ?>" class="stacked-form">
         <?= csrf_field() ?>
         <input type="hidden" name="id" value="<?= h((string) $photo['id']) ?>">
-        <input type="hidden" name="lock_version" value="<?= h((string) ($_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['lock_version'] ?? '') : ($photo['lock_version'] ?? 1))) ?>">
+        <input type="hidden" name="lock_version" value="<?= h((string) ($_SERVER['REQUEST_METHOD'] === 'POST' ? request_int($_POST, 'lock_version', 1, 1) : ($photo['lock_version'] ?? 1))) ?>">
         <label>
             Назва
             <input type="text" name="title" value="<?= h((string) ($title ?? $photo['title'])) ?>" maxlength="255" required>
@@ -129,6 +128,14 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
 
 <section class="form-panel admin-share-panel">
     <h2>Приватні посилання</h2>
+    <?php if ($newPhotoShareUrl !== null): ?>
+        <div class="alert alert-success">
+            <strong>Нове посилання — скопіюйте зараз:</strong><br>
+            <a href="<?= h($newPhotoShareUrl) ?>" target="_blank" rel="noopener noreferrer"><?= h($newPhotoShareUrl) ?></a>
+            <button class="button secondary btn-copy" data-copy-text="<?= h($newPhotoShareUrl) ?>" type="button">Копіювати</button>
+            <div class="form-hint">Raw token не зберігається у базі й після оновлення сторінки більше не показуватиметься.</div>
+        </div>
+    <?php endif; ?>
     <?php if ($shareLinks): ?>
         <ul class="admin-share-list">
         <?php foreach ($shareLinks as $link): ?>
@@ -138,15 +145,13 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             ?>
             <li>
                 <div class="share-link-details">
-                    <a href="<?= h(url('share.php?token=' . $link['token'])) ?>" target="_blank">
-                        <?= h(url('share.php?token=' . $link['token'])) ?>
-                    </a>
+                    <strong>Посилання …<?= h((string) ($link['token_hint'] ?? '')) ?></strong>
                     <span class="share-link-status <?= $isExpired ? 'is-expired' : '' ?>">
                         <?= $expiresAt === '' ? 'Без строку дії' : ($isExpired ? 'Застаріло: ' : 'Діє до: ') . h($expiresAt) ?>
                     </span>
+                    <span class="form-hint">З міркувань безпеки повний token не зберігається. Для нового URL створіть нове посилання.</span>
                 </div>
                 <div class="admin-actions">
-                    <button class="button secondary btn-copy" data-copy-text="<?= h(url('share.php?token=' . $link['token'])) ?>" type="button">Копіювати</button>
                     <form method="post" action="<?= h(url('admin/share.php')) ?>" data-confirm="Видалити посилання?">
                         <?= csrf_field() ?>
                         <input type="hidden" name="action" value="revoke">

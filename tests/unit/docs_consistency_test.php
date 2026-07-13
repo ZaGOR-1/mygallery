@@ -50,8 +50,24 @@ assert_false(str_contains($uiStatus, 'Впровадити Drag-and-drop'), 'UI/
 
 $bugs = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'docs' . DIRECTORY_SEPARATOR . 'BUGS.md');
 $auditReport = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'docs' . DIRECTORY_SEPARATOR . 'AUDIT_REPORT.md');
+$securityAudit = (string) file_get_contents($root . DIRECTORY_SEPARATOR . 'docs' . DIRECTORY_SEPARATOR . 'SECURITY_AUDIT.md');
 assert_true(str_contains($bugs, 'MyGallery ' . $version), 'BUGS.md must name the current VERSION');
 assert_true(str_contains($auditReport, 'MyGallery ' . $version), 'AUDIT_REPORT.md must name the current VERSION');
+assert_true(str_contains($securityAudit, 'MyGallery ' . $version), 'SECURITY_AUDIT.md must name the current VERSION');
+$canonicalAuditPath = $root . DIRECTORY_SEPARATOR . 'MYGALLERY_AUDIT.md';
+assert_true(is_file($canonicalAuditPath), 'current audit summaries must link to an existing canonical audit source');
+$canonicalAudit = (string) file_get_contents($canonicalAuditPath);
+$canonicalAuditHash = hash_file('sha256', $canonicalAuditPath);
+assert_true(is_string($canonicalAuditHash), 'canonical audit source must be hashable');
+assert_true(
+    preg_match('/\| Git commit \| `([a-f0-9]{40})` \|/', $canonicalAudit, $auditIdentity) === 1,
+    'canonical audit source must declare its Git commit identity'
+);
+foreach (['AUDIT_REPORT.md' => $auditReport, 'SECURITY_AUDIT.md' => $securityAudit] as $document => $contents) {
+    assert_true(str_contains($contents, '[MYGALLERY_AUDIT.md](../MYGALLERY_AUDIT.md)'), $document . ' must link to the canonical audit source');
+    assert_true(str_contains($contents, $canonicalAuditHash), $document . ' must contain the current canonical audit SHA-256');
+    assert_true(str_contains($contents, $auditIdentity[1]), $document . ' must contain the audited Git commit');
+}
 assert_true(str_contains($readme, '2026_07_10_add_photo_lock_version.sql'), 'README update commands must include the current lock_version migration');
 assert_true(str_contains($readme, '2026_07_10_add_share_target_check.sql'), 'README update commands must include the current share target migration');
 

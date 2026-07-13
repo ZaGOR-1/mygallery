@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../app/includes/functions.php';
 
+$GLOBALS['mygallery_referrer_policy'] = 'no-referrer';
+send_private_cache_headers();
+
 function send_share_noindex_headers(): void
 {
     if (!headers_sent()) {
@@ -14,78 +17,9 @@ function send_share_noindex_headers(): void
 send_share_noindex_headers();
 $robotsMeta = 'noindex, noarchive';
 
-$ip = client_ip();
-$rateLimitDir = storage_path('share_ratelimit');
-if (!is_dir($rateLimitDir)) {
-    @mkdir($rateLimitDir, 0755, true);
-}
-$rateLimitFile = $rateLimitDir . DIRECTORY_SEPARATOR . 'limit_' . md5($ip) . '.json';
+enforce_share_request_rate_limit('page');
 
-// Лічильник rate limit оновлюється під `flock` (read-modify-write), інакше паралельні
-// запити губили б інкременти й лічильник занижувався б. Форма масиву валідується після
-// json_decode: битий/неочікуваний JSON не має давати null-deref під strict_types.
-$rateLimited = false;
-$rateLimitReady = is_dir($rateLimitDir) && is_writable($rateLimitDir);
-
-if (!$rateLimitReady) {
-    app_log('Share rate limit storage is not writable: ' . $rateLimitDir);
-    if (is_production()) {
-        app_http_error('Служба приватних посилань тимчасово недоступна. Спробуйте пізніше.', 503);
-    }
-}
-
-$handle = $rateLimitReady ? @fopen($rateLimitFile, 'c+') : false;
-if ($handle === false && $rateLimitReady) {
-    app_log('Share rate limit file could not be opened: ' . $rateLimitFile);
-    if (is_production()) {
-        app_http_error('Служба приватних посилань тимчасово недоступна. Спробуйте пізніше.', 503);
-    }
-}
-
-if ($handle !== false) {
-    try {
-        if (flock($handle, LOCK_EX)) {
-            $now = time();
-            $raw = stream_get_contents($handle);
-            $decoded = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
-
-            if (!is_array($decoded) || !isset($decoded['count'], $decoded['time'])) {
-                $limitArr = ['count' => 0, 'time' => $now];
-            } else {
-                $limitArr = ['count' => (int) $decoded['count'], 'time' => (int) $decoded['time']];
-            }
-
-            if ($now - $limitArr['time'] > 60) {
-                $limitArr = ['count' => 1, 'time' => $now];
-            } else {
-                $limitArr['count']++;
-            }
-
-            ftruncate($handle, 0);
-            rewind($handle);
-            fwrite($handle, (string) json_encode($limitArr));
-            fflush($handle);
-            flock($handle, LOCK_UN);
-
-            $rateLimited = $limitArr['count'] > 120;
-        }
-    } finally {
-        if (is_resource($handle)) {
-            fclose($handle);
-        }
-    }
-}
-
-if ($rateLimited) {
-    http_response_code(429);
-    $errorStatusCode = 429;
-    $errorTitle = 'Занадто багато запитів';
-    $errorMessage = 'Будь ласка, зачекайте хвилину перед наступним запитом.';
-    require __DIR__ . '/404.php';
-    exit;
-}
-
-$token = (string) ($_GET['token'] ?? '');
+$token = request_raw_string($_GET, 'token', '', 64);
 
 if (!valid_share_token($token)) {
     $errorStatusCode = 404;
@@ -133,7 +67,7 @@ function render_shared_photo(array $photo, string $token, ?int $albumId = null) 
         </header>
 
         <figure class="large-photo shared-photo-figure">
-            <a href="<?= h($photoImageUrl) ?>" target="_blank">
+            <a href="<?= h($photoImageUrl) ?>" target="_blank" rel="noopener noreferrer">
                 <picture>
                     <?php
                     $avifSrcset = photo_responsive_srcset_next_gen($photo, 'avif', $token);

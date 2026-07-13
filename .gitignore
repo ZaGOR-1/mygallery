@@ -36,6 +36,8 @@ storage/media_maintenance.lock
 Thumbs.db
 
 dist/*.zip
+dist/*.zip.sha256
+dist/*.zip.provenance.json
 backups/*.zip
 backups/*.sql
 !backups/.gitkeep

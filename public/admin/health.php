@@ -180,11 +180,12 @@ function render_health_table(string $title, array $rows): void
         <h2><?= h($title) ?></h2>
         <div class="health-table-wrap">
             <table class="health-table">
+                <caption class="visually-hidden"><?= h($title) ?></caption>
                 <thead>
                 <tr>
-                    <th>Перевірка</th>
-                    <th>Статус</th>
-                    <th>Деталі</th>
+                    <th scope="col">Перевірка</th>
+                    <th scope="col">Статус</th>
+                    <th scope="col">Деталі</th>
                 </tr>
                 </thead>
                 <tbody>

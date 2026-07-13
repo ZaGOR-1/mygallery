@@ -7,6 +7,8 @@ const MYGALLERY_BACKUP_ROOT = 'mygallery_backup/';
 const MYGALLERY_BACKUP_MANIFEST_ENTRY = MYGALLERY_BACKUP_ROOT . 'BACKUP_MANIFEST.json';
 const MYGALLERY_BACKUP_DATABASE_ENTRY = MYGALLERY_BACKUP_ROOT . 'database.sql';
 const MYGALLERY_BACKUP_CONFIG_ENTRY = MYGALLERY_BACKUP_ROOT . 'config/database.php';
+const MYGALLERY_BACKUP_MAX_TOTAL_UNCOMPRESSED_BYTES = 107374182400; // 100 GiB
+const MYGALLERY_BACKUP_MAX_COMPRESSION_RATIO = 250;
 
 /**
  * @return array<string, string>
@@ -276,16 +278,26 @@ function backup_validate_photo_inventory(mixed $value, array $mediaEntries): arr
  *     manifest: array<string, mixed>,
  *     media_entries: array<string, list<array{entry: string, filename: string, size: int, sha256: string}>>,
  *     photo_inventory: list<array{id: int, filename: string, thumbnail_filename: string, original_sha256: ?string}>,
- *     file_count: int
+ *     file_count: int,
+ *     total_uncompressed_bytes: int,
+ *     total_compressed_bytes: int,
+ *     media_uncompressed_bytes: array<string, int>
  * }
  */
-function backup_validate_archive(ZipArchive $zip): array
+function backup_validate_archive(
+    ZipArchive $zip,
+    int $maximumTotalUncompressedBytes = MYGALLERY_BACKUP_MAX_TOTAL_UNCOMPRESSED_BYTES,
+    int $maximumCompressionRatio = MYGALLERY_BACKUP_MAX_COMPRESSION_RATIO
+): array
 {
-    if ($zip->numFiles < 2 || $zip->numFiles > 200000) {
+    if ($zip->numFiles < 2 || $zip->numFiles > 200000
+        || $maximumTotalUncompressedBytes < 1 || $maximumCompressionRatio < 1) {
         throw new RuntimeException('Некоректна кількість entries у backup ZIP.');
     }
 
     $archiveEntries = [];
+    $totalUncompressedBytes = 0;
+    $totalCompressedBytes = 0;
     for ($index = 0; $index < $zip->numFiles; $index++) {
         $stat = $zip->statIndex($index, ZipArchive::FL_UNCHANGED);
         if ($stat === false || !isset($stat['name']) || !is_string($stat['name'])) {
@@ -299,7 +311,25 @@ function backup_validate_archive(ZipArchive $zip): array
         if (isset($archiveEntries[$name])) {
             throw new RuntimeException('Дубльований entry у backup ZIP: ' . $name);
         }
+        $size = $stat['size'] ?? null;
+        $compressedSize = $stat['comp_size'] ?? null;
+        if (!is_int($size) || !is_int($compressedSize) || $size < 0 || $compressedSize < 0) {
+            throw new RuntimeException('Некоректні size metadata у backup ZIP: ' . $name);
+        }
+        if ($size > $maximumTotalUncompressedBytes - $totalUncompressedBytes) {
+            throw new RuntimeException('Сукупний розпакований розмір backup ZIP перевищує ліміт.');
+        }
+        $totalUncompressedBytes += $size;
+        $totalCompressedBytes += $compressedSize;
+        if ($size >= 1024 * 1024
+            && ($compressedSize === 0 || ($size / $compressedSize) > $maximumCompressionRatio)) {
+            throw new RuntimeException('Підозрілий compression ratio у backup ZIP: ' . $name);
+        }
         $archiveEntries[$name] = true;
+    }
+    if ($totalUncompressedBytes >= 1024 * 1024
+        && ($totalCompressedBytes === 0 || ($totalUncompressedBytes / $totalCompressedBytes) > $maximumCompressionRatio)) {
+        throw new RuntimeException('Сукупний compression ratio backup ZIP перевищує ліміт.');
     }
 
     $manifestRead = backup_read_zip_entry($zip, MYGALLERY_BACKUP_MANIFEST_ENTRY, 64 * 1024 * 1024, true);
@@ -343,6 +373,7 @@ function backup_validate_archive(ZipArchive $zip): array
         MYGALLERY_BACKUP_DATABASE_ENTRY => true,
     ];
     $mediaEntries = [];
+    $mediaUncompressedBytes = [];
     $prefixes = backup_media_prefixes();
     $fileGroupKeys = array_keys($manifest['files']);
     sort($fileGroupKeys);
@@ -359,6 +390,7 @@ function backup_validate_archive(ZipArchive $zip): array
         }
 
         $mediaEntries[$group] = [];
+        $mediaUncompressedBytes[$group] = 0;
         foreach ($descriptors as $position => $descriptorValue) {
             if (!is_array($descriptorValue) || !isset($descriptorValue['entry']) || !is_string($descriptorValue['entry'])) {
                 throw new RuntimeException("Manifest: некоректний media descriptor {$group}[{$position}].");
@@ -379,6 +411,10 @@ function backup_validate_archive(ZipArchive $zip): array
             }
             $expectedFiles[$entry] = true;
             $mediaEntries[$group][] = $descriptor + ['filename' => $filename];
+            if ($descriptor['size'] > PHP_INT_MAX - $mediaUncompressedBytes[$group]) {
+                throw new RuntimeException('Media size overflow у backup manifest.');
+            }
+            $mediaUncompressedBytes[$group] += $descriptor['size'];
         }
     }
 
@@ -457,5 +493,8 @@ function backup_validate_archive(ZipArchive $zip): array
         'media_entries' => $mediaEntries,
         'photo_inventory' => $photoInventory,
         'file_count' => count($expectedFiles),
+        'total_uncompressed_bytes' => $totalUncompressedBytes,
+        'total_compressed_bytes' => $totalCompressedBytes,
+        'media_uncompressed_bytes' => $mediaUncompressedBytes,
     ];
 }

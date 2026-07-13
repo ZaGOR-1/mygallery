@@ -60,10 +60,18 @@ function require_admin(): void
     send_admin_cache_headers();
 }
 
-function login_admin(array $admin): void
+function login_admin(array $admin, ?callable $sessionRegenerator = null): void
 {
     start_session();
-    session_regenerate_id(true);
+    $sessionRegenerator ??= static fn (): bool => session_regenerate_id(true);
+    if ($sessionRegenerator() !== true) {
+        $_SESSION = [];
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
+        app_log('Admin login aborted: session ID regeneration failed.');
+        throw new RuntimeException('Не вдалося безпечно створити адміністративну сесію.');
+    }
     $_SESSION['admin_id'] = (int) $admin['id'];
     $_SESSION['admin_username'] = (string) $admin['username'];
     $_SESSION['admin_session_version'] = (int) ($admin['session_version'] ?? 1);

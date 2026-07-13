@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'BackupArchiveValidator.php';
 
 if (PHP_SAPI !== 'cli') {
@@ -33,7 +34,11 @@ if ($zip->open($zipPath) !== true) {
 }
 
 try {
-    $validated = backup_validate_archive($zip);
+    $validated = backup_validate_archive(
+        $zip,
+        (int) app_config()['RESTORE_MAX_UNCOMPRESSED_BYTES'],
+        (int) app_config()['RESTORE_MAX_COMPRESSION_RATIO']
+    );
 } catch (Throwable $exception) {
     fwrite(STDERR, "Backup не пройшов перевірку: " . $exception->getMessage() . "\n");
     $zip->close();

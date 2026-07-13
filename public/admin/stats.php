@@ -187,7 +187,8 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
     <article class="table-panel">
         <h2>Якість заповнення</h2>
         <table>
-            <thead><tr><th>Показник</th><th>Кількість</th><th>Частка</th></tr></thead>
+            <caption class="visually-hidden">Якість заповнення метаданих</caption>
+            <thead><tr><th scope="col">Показник</th><th scope="col">Кількість</th><th scope="col">Частка</th></tr></thead>
             <tbody>
                 <?php foreach ($qualityRows as $row): ?>
                     <tr><td><?= h($row['label']) ?></td><td><?= h((string) $row['count']) ?></td><td><?= h($row['percent']) ?></td></tr>
@@ -199,7 +200,8 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
     <article class="table-panel">
         <h2>Media-сховище</h2>
         <table>
-            <thead><tr><th>Папка / джерело</th><th>Розмір</th></tr></thead>
+            <caption class="visually-hidden">Використання media-сховища</caption>
+            <thead><tr><th scope="col">Папка / джерело</th><th scope="col">Розмір</th></tr></thead>
             <tbody>
                 <?php foreach ($storageRows as $row): ?>
                     <tr><td><?= h($row['label']) ?></td><td><?= h($row['value']) ?></td></tr>
@@ -216,7 +218,8 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             <p class="empty-state">Даних камери поки немає.</p>
         <?php else: ?>
             <table>
-                <thead><tr><th>Камера</th><th>Фото</th></tr></thead>
+                <caption class="visually-hidden">Найчастіше використані камери</caption>
+                <thead><tr><th scope="col">Камера</th><th scope="col">Фото</th></tr></thead>
                 <tbody>
                     <?php foreach ($topCameras as $row): ?>
                         <tr><td><?= h($row['name']) ?></td><td><?= h((string) $row['photo_count']) ?></td></tr>
@@ -232,7 +235,8 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             <p class="empty-state">Даних об’єктива поки немає.</p>
         <?php else: ?>
             <table>
-                <thead><tr><th>Об’єктив</th><th>Фото</th></tr></thead>
+                <caption class="visually-hidden">Найчастіше використані об’єктиви</caption>
+                <thead><tr><th scope="col">Об’єктив</th><th scope="col">Фото</th></tr></thead>
                 <tbody>
                     <?php foreach ($topLenses as $row): ?>
                         <tr><td><?= h($row['name']) ?></td><td><?= h((string) $row['photo_count']) ?></td></tr>
@@ -250,7 +254,8 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             <p class="empty-state">Тегів поки немає.</p>
         <?php else: ?>
             <table>
-                <thead><tr><th>Тег</th><th>Фото</th></tr></thead>
+                <caption class="visually-hidden">Найчастіше використані теги</caption>
+                <thead><tr><th scope="col">Тег</th><th scope="col">Фото</th></tr></thead>
                 <tbody>
                     <?php foreach ($topTags as $row): ?>
                         <tr>
@@ -269,7 +274,8 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
             <p class="empty-state">Фото поки немає.</p>
         <?php else: ?>
             <table>
-                <thead><tr><th>Період</th><th>Фото</th></tr></thead>
+                <caption class="visually-hidden">Кількість фотографій за останні місяці</caption>
+                <thead><tr><th scope="col">Період</th><th scope="col">Фото</th></tr></thead>
                 <tbody>
                     <?php foreach ($monthlyRows as $row): ?>
                         <tr><td><?= h($row['period']) ?></td><td><?= h((string) $row['photo_count']) ?></td></tr>
@@ -286,7 +292,8 @@ require dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR 
         <p class="empty-state">Фото поки немає.</p>
     <?php else: ?>
         <table>
-            <thead><tr><th>Назва</th><th>Дата додавання</th></tr></thead>
+            <caption class="visually-hidden">Останні завантажені фотографії</caption>
+            <thead><tr><th scope="col">Назва</th><th scope="col">Дата додавання</th></tr></thead>
             <tbody>
                 <?php foreach ($latestRows as $row): ?>
                     <tr>

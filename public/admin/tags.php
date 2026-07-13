@@ -15,72 +15,41 @@ $editingTag = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_csrf();
 
-    $action = (string) ($_POST['action'] ?? '');
+    $action = request_string($_POST, 'action', 24);
 
     if (empty($errors)) {
         try {
             if ($action === 'update') {
-                $tagId = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
-                $tagName = (string) ($_POST['name'] ?? '');
+                $tagId = request_int($_POST, 'id', null, 1);
+                $tagName = request_string($_POST, 'name', tag_name_max_length());
                 
-                if ($tagId === false || $tagId === null || $tagId < 1) {
+                if ($tagId === null) {
                     throw new InvalidArgumentException('Некоректний тег.');
                 }
                 
-                $tagName = clean_tag_name($tagName);
-                $slug = tag_slug($tagName);
-                
-                if ($tagName === '' || $slug === '') {
-                    throw new InvalidArgumentException('Назва тегу не може бути порожньою.');
-                }
-                
-                $pdo = db();
-                $stmt = $pdo->prepare('SELECT id FROM tags WHERE (name = ? OR slug = ?) AND id != ?');
-                $stmt->execute([$tagName, $slug, $tagId]);
-                if ($stmt->fetch()) {
-                    throw new InvalidArgumentException('Тег із такою назвою вже існує.');
-                }
-                
-                $stmt = $pdo->prepare('UPDATE tags SET name = ?, slug = ? WHERE id = ?');
-                $stmt->execute([$tagName, $slug, $tagId]);
+                rename_tag_with_locking(db(), (int) $tagId, $tagName);
                 
                 set_flash('success', 'Тег оновлено.');
                 redirect('admin/tags.php');
             } elseif ($action === 'merge') {
-                $sourceId = filter_input(INPUT_POST, 'source_id', FILTER_VALIDATE_INT);
-                $targetId = filter_input(INPUT_POST, 'target_id', FILTER_VALIDATE_INT);
+                $sourceId = request_int($_POST, 'source_id', null, 1);
+                $targetId = request_int($_POST, 'target_id', null, 1);
                 
                 if (!$sourceId || !$targetId || $sourceId === $targetId) {
                     throw new InvalidArgumentException('Некоректні теги для об\'єднання.');
                 }
                 
-                $pdo = db();
-                $pdo->beginTransaction();
-                
-                $stmt = $pdo->prepare('SELECT photo_id FROM photo_tags WHERE tag_id = ?');
-                $stmt->execute([$sourceId]);
-                $photos = $stmt->fetchAll();
-                
-                $insertStmt = $pdo->prepare('INSERT IGNORE INTO photo_tags (photo_id, tag_id) VALUES (?, ?)');
-                foreach ($photos as $photo) {
-                    $insertStmt->execute([$photo['photo_id'], $targetId]);
-                }
-                
-                $delStmt = $pdo->prepare('DELETE FROM tags WHERE id = ?');
-                $delStmt->execute([$sourceId]);
-                
-                $pdo->commit();
+                merge_tags_with_locking(db(), (int) $sourceId, (int) $targetId);
                 
                 set_flash('success', 'Теги об\'єднано.');
                 redirect('admin/tags.php');
             } elseif ($action === 'delete') {
-                $tagId = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
-                if ($tagId === false || $tagId === null || $tagId < 1) {
+                $tagId = request_int($_POST, 'id', null, 1);
+                if ($tagId === null) {
                     throw new InvalidArgumentException('Некоректний тег.');
                 }
                 
-                $stmt = db()->prepare('DELETE FROM tags WHERE id = ?');
-                $stmt->execute([$tagId]);
+                delete_tag_with_locking(db(), (int) $tagId);
                 
                 set_flash('success', 'Тег видалено.');
                 redirect('admin/tags.php');

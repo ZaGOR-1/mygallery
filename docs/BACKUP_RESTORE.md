@@ -1,6 +1,6 @@
 # Backup and Restore
 
-Backup містить приватні byte-for-byte оригінали, хеші паролів адміністраторів і share tokens. Зберігайте ZIP поза `public/`/DocumentRoot, не комітьте його та обмежте доступ на рівні ОС. Опція `--include-config` додатково включає DB credentials із `config/database.php`.
+Backup містить приватні byte-for-byte оригінали, хеші паролів адміністраторів і SHA-256-хеші share tokens (не raw URL). Зберігайте ZIP поза `public/`/DocumentRoot, не комітьте його та обмежте доступ на рівні ОС. Опція `--include-config` додатково включає DB credentials із `config/database.php`.
 
 ## Створення backup
 
@@ -10,9 +10,9 @@ php tools/backup.php --include-config
 php tools/backup.php --output=/private/path/mygallery_backup.zip
 ```
 
-За замовчуванням архів створюється в приватній папці `backups/`. На Linux інструмент примусово встановлює `0700` для цієї папки та `0600` для ZIP; якщо group/other access не можна прибрати, backup скасовується. Не запускайте backup від `root` без потреби та не зберігайте output у shared-readable директорії. Шлях усередині `public/` блокується. Службові `.gitkeep` і `.htaccess` не копіюються як media payload: після restore вони беруться з інсталяції, у яку виконується відновлення.
+За замовчуванням архів створюється в приватній папці `backups/`. На Linux інструмент примусово встановлює `0700` для цієї папки та `0600` для ZIP. `--output` приймає лише новий `.zip` у реальній non-symlink директорії, блокує project source/config/public/storage і ніколи не перезаписує existing target. Запис виконується через exclusive sibling temp і atomic rename. Не запускайте backup від `root` без потреби та не зберігайте output у shared-readable директорії. Службові `.gitkeep` і `.htaccess` не копіюються як media payload.
 
-Перед читанням БД `backup.php` отримує exclusive `storage/media_maintenance.lock`, а upload/delete/trash restore/regenerate/cleanup tools використовують shared lock. Далі БД читається через `REPEATABLE READ` consistent snapshot. Lock утримується до повного читання media, створення й перевірки ZIP, тому backup не може побачити половину офіційної media lifecycle operation.
+Перед читанням БД `backup.php` отримує exclusive `storage/media_maintenance.lock`. Короткі web media mutations використовують shared lock, а destructive global cleanup/regenerate/recover tools — exclusive lock. Далі БД читається через `REPEATABLE READ` consistent snapshot. Lock утримується до повного читання media, створення й перевірки ZIP, тому backup не може побачити половину офіційної media lifecycle operation.
 
 Поточний format v2 містить:
 
@@ -22,7 +22,9 @@ php tools/backup.php --output=/private/path/mygallery_backup.zip
 - `photo_inventory`, отриманий із того самого DB snapshot: кожен DB photo мусить мати original/large/thumbnail, derivatives не можуть бути orphan, а `photos.original_sha256` звіряється з приватним original;
 - тільки media-імена формату `32hex.jpg|webp|avif` у визначених папках.
 
-Після запису `tools/backup.php` обов’язково повторно відкриває ZIP, читає всі streams і перевіряє manifest. За будь-якої помилки інструмент повертає non-zero та видаляє невдалий output.
+Backup/release використовують `ZipArchive`, тому media додаються потоково й доступний ZIP64; `SimpleZipWriter` не є штатним writer для великих backup. Перед завершенням ZIP виконується fail-closed preflight вільного місця за сумарним uncompressed payload із validation reserve. Після запису `tools/backup.php` обов’язково повторно відкриває temporary ZIP, читає всі streams і перевіряє manifest до atomic publish. За будь-якої помилки інструмент повертає non-zero та видаляє temporary output.
+
+SHA-256 у manifest захищає від випадкового пошкодження, але не є MAC або цифровим підписом. Відновлюйте лише backup із довіреного приватного сховища; для недовіреного transport додатково використовуйте offline encryption/signature і перевіряйте її до `restore.php`.
 
 ## Незалежна перевірка
 
@@ -44,14 +46,15 @@ php tools/restore.php /private/path/mygallery_backup.zip
 Коли буде запит, введіть `RESTORE`. Інструмент:
 
 1. повністю перевіряє backup до confirmation;
-2. розпаковує всі media у приховані staging-директорії на тому самому filesystem;
-3. повторно перевіряє точну кількість записаних bytes і SHA-256;
-4. запускає транзакцію БД, застосовує DML dump і записує operation marker у `schema_migrations`;
-5. перейменовує поточні media-директорії в rollback-копії та атомарно активує staging;
-6. commit-ить БД лише після успішного directory swap;
-7. видаляє rollback-копії, marker і `storage/restore_journal.json`.
+2. відхиляє archive понад `RESTORE_MAX_UNCOMPRESSED_BYTES`, підозрілий `RESTORE_MAX_COMPRESSION_RATIO` або staging без `RESTORE_MIN_FREE_BYTES` запасу;
+3. розпаковує всі media у приховані staging-директорії на тому самому filesystem із 0700/0600 для private originals і 0750/0640 для derivatives;
+4. повторно перевіряє точну кількість записаних bytes і SHA-256;
+5. запускає транзакцію БД, застосовує DML dump і записує operation marker у `schema_migrations`;
+6. перейменовує поточні media-директорії в rollback-копії та атомарно активує staging;
+7. commit-ить БД лише після успішного directory swap;
+8. видаляє rollback-копії, marker і `storage/restore_journal.json`.
 
-Якщо staging, SQL або swap завершується помилкою, поточні дані не видаляються або повертаються з rollback-копій. Якщо процес/сервер аварійно зупинився, повторно запустіть `tools/restore.php`: перед роботою з новим ZIP він перевірить journal і DB marker, після чого детерміновано завершить committed restore або поверне старі media для uncommitted restore.
+Якщо staging, SQL або swap завершується помилкою, поточні дані не видаляються або повертаються з rollback-копій. Journal записується атомарно як приватний файл 0600; startup fail-closed відхиляє symlink або небезпечний mode. Якщо процес/сервер аварійно зупинився, повторно запустіть `tools/restore.php`: перед роботою з новим ZIP він перевірить journal і DB marker, після чого детерміновано завершить committed restore або поверне старі media для uncommitted restore.
 
 Поки існує `storage/restore_journal.json`, не запускайте сайт і не видаляйте `.restore-stage-*` / `.restore-old-*` вручну. Restore додатково бере exclusive media maintenance lock і відмовляється працювати з symlink/junction media targets.
 

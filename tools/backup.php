@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'functions.php';
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'SimpleZipWriter.php';
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'BackupArchiveValidator.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'SafeCliZipOutput.php';
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
@@ -54,65 +54,6 @@ if (!$customOutput && PHP_OS_FAMILY !== 'Windows') {
     }
 }
 
-function backup_normalize_path(string $path): string
-{
-    $path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path);
-
-    if (preg_match('/^[A-Za-z]:\\\\/', $path) !== 1 && !str_starts_with($path, DIRECTORY_SEPARATOR)) {
-        $path = getcwd() . DIRECTORY_SEPARATOR . $path;
-    }
-
-    $parts = [];
-    $prefix = '';
-
-    if (preg_match('/^[A-Za-z]:\\\\/', $path) === 1) {
-        $prefix = substr($path, 0, 3);
-        $path = substr($path, 3);
-    } elseif (str_starts_with($path, DIRECTORY_SEPARATOR)) {
-        $prefix = DIRECTORY_SEPARATOR;
-        $path = ltrim($path, DIRECTORY_SEPARATOR);
-    }
-
-    foreach (explode(DIRECTORY_SEPARATOR, $path) as $part) {
-        if ($part === '' || $part === '.') {
-            continue;
-        }
-
-        if ($part === '..') {
-            array_pop($parts);
-            continue;
-        }
-
-        $parts[] = $part;
-    }
-
-    return rtrim($prefix . implode(DIRECTORY_SEPARATOR, $parts), DIRECTORY_SEPARATOR);
-}
-
-function backup_path_is_inside(string $path, string $directory): bool
-{
-    $path = backup_normalize_path($path);
-    $directory = rtrim(backup_normalize_path($directory), DIRECTORY_SEPARATOR);
-    $pathForCompare = PHP_OS_FAMILY === 'Windows' ? strtolower($path) : $path;
-    $directoryForCompare = PHP_OS_FAMILY === 'Windows' ? strtolower($directory) : $directory;
-
-    return $pathForCompare === $directoryForCompare
-        || str_starts_with($pathForCompare, $directoryForCompare . DIRECTORY_SEPARATOR);
-}
-
-function backup_validate_output_path(string $output, string $root): void
-{
-    $publicPath = $root . DIRECTORY_SEPARATOR . 'public';
-    $outputPath = backup_normalize_path($output);
-
-    if (backup_path_is_inside($outputPath, $publicPath)) {
-        fwrite(STDERR, "Backup output must not be inside public/.\n");
-        exit(1);
-    }
-}
-
-backup_validate_output_path($output, $root);
-
 function backup_sql_value(mixed $value): string
 {
     if ($value === null) {
@@ -150,7 +91,7 @@ function export_table_sql(PDO $pdo, string $table): string
 /**
  * @return list<array{entry: string, size: int, sha256: string}>
  */
-function backup_add_directory_files(SimpleZipWriter $zip, string $baseDir, string $entryBase): array
+function backup_add_directory_files(ZipArchive $zip, string $baseDir, string $entryBase): array
 {
     if (!is_dir($baseDir)) {
         return [];
@@ -182,7 +123,9 @@ function backup_add_directory_files(SimpleZipWriter $zip, string $baseDir, strin
         $entry = rtrim($entryBase, '/') . '/' . $filename;
         $descriptor = backup_file_descriptor($path, $entry);
 
-        $zip->addFile($path, $entry);
+        if (!$zip->addFile($path, $entry)) {
+            throw new RuntimeException('Не вдалося додати media-файл до backup ZIP: ' . $filename);
+        }
         $descriptors[] = $descriptor;
     }
 
@@ -251,9 +194,15 @@ if ($tmpSql === false || file_put_contents($tmpSql, $sql) === false) {
 $tmpManifest = null;
 $manifest = [];
 $zip = null;
+$safeOutput = null;
 
 try {
-    $zip = new SimpleZipWriter($output, 0600);
+    $safeOutput = prepare_safe_cli_zip_output($output, $root, [$backupDir], 0600);
+    $output = $safeOutput['final'];
+    $zip = new ZipArchive();
+    if ($zip->open($safeOutput['temporary'], ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+        throw new RuntimeException('Не вдалося відкрити temporary backup ZIP.');
+    }
     foreach ([
         'mygallery_backup',
         'mygallery_backup/storage',
@@ -263,11 +212,15 @@ try {
         'mygallery_backup/public/uploads/large',
         'mygallery_backup/public/uploads/thumbnails',
     ] as $directoryEntry) {
-        $zip->addDirectory($directoryEntry);
+        if (!$zip->addEmptyDir($directoryEntry)) {
+            throw new RuntimeException('Не вдалося додати директорію до backup ZIP: ' . $directoryEntry);
+        }
     }
 
     $databaseDescriptor = backup_file_descriptor($tmpSql, MYGALLERY_BACKUP_DATABASE_ENTRY);
-    $zip->addFile($tmpSql, MYGALLERY_BACKUP_DATABASE_ENTRY);
+    if (!$zip->addFile($tmpSql, MYGALLERY_BACKUP_DATABASE_ENTRY)) {
+        throw new RuntimeException('Не вдалося додати database.sql до backup ZIP.');
+    }
 
     $manifest = [
         'format_version' => MYGALLERY_BACKUP_FORMAT_VERSION,
@@ -288,9 +241,13 @@ try {
         if (!is_file($databaseConfig) || !is_readable($databaseConfig)) {
             throw new RuntimeException('Запитано --include-config, але config/database.php відсутній або недоступний для читання.');
         }
-        $zip->addDirectory('mygallery_backup/config');
+        if (!$zip->addEmptyDir('mygallery_backup/config')) {
+            throw new RuntimeException('Не вдалося додати config directory до backup ZIP.');
+        }
         $manifest['config'] = backup_file_descriptor($databaseConfig, MYGALLERY_BACKUP_CONFIG_ENTRY);
-        $zip->addFile($databaseConfig, MYGALLERY_BACKUP_CONFIG_ENTRY);
+        if (!$zip->addFile($databaseConfig, MYGALLERY_BACKUP_CONFIG_ENTRY)) {
+            throw new RuntimeException('Не вдалося додати config до backup ZIP.');
+        }
     }
 
     $tmpManifest = tempnam(sys_get_temp_dir(), 'mygallery_manifest_');
@@ -301,21 +258,41 @@ try {
     if ($tmpManifest === false || file_put_contents($tmpManifest, $manifestJson) === false) {
         throw new RuntimeException('Не вдалося створити manifest.');
     }
-    $zip->addFile($tmpManifest, MYGALLERY_BACKUP_MANIFEST_ENTRY);
-    $zip->finish();
+    $estimatedZipBytes = (int) $databaseDescriptor['size'] + strlen($manifestJson);
+    foreach ($manifest['files'] as $descriptors) {
+        foreach ($descriptors as $descriptor) {
+            $estimatedZipBytes += (int) $descriptor['size'];
+        }
+    }
+    if (is_array($manifest['config'])) {
+        $estimatedZipBytes += (int) $manifest['config']['size'];
+    }
+    require_safe_cli_zip_free_space($safeOutput, $estimatedZipBytes);
+    if (!$zip->addFile($tmpManifest, MYGALLERY_BACKUP_MANIFEST_ENTRY)) {
+        throw new RuntimeException('Не вдалося додати manifest до backup ZIP.');
+    }
+    if (!$zip->close()) {
+        throw new RuntimeException('Не вдалося завершити temporary backup ZIP.');
+    }
+    $zip = null;
 
     $validationZip = new ZipArchive();
-    if ($validationZip->open($output) !== true) {
+    if ($validationZip->open($safeOutput['temporary'], ZipArchive::CHECKCONS) !== true) {
         throw new RuntimeException('Створений backup ZIP неможливо повторно відкрити для перевірки.');
     }
     try {
-        backup_validate_archive($validationZip);
+        backup_validate_archive(
+            $validationZip,
+            (int) app_config()['RESTORE_MAX_UNCOMPRESSED_BYTES'],
+            (int) app_config()['RESTORE_MAX_COMPRESSION_RATIO']
+        );
     } finally {
         $validationZip->close();
     }
     if (!$pdo->commit()) {
         throw new RuntimeException('Не вдалося завершити consistent DB snapshot transaction.');
     }
+    publish_safe_cli_zip_output($safeOutput);
     release_media_maintenance_lock($mediaMaintenanceLock);
     $mediaMaintenanceLock = null;
 } catch (Throwable $exception) {
@@ -324,11 +301,10 @@ try {
     }
     release_media_maintenance_lock($mediaMaintenanceLock);
     $mediaMaintenanceLock = null;
-    // Закриває file handle незавершеного SimpleZipWriter перед unlink на Windows.
-    unset($zip);
-    if (is_file($output) && !unlink($output)) {
-        fwrite(STDERR, "Увага: не вдалося видалити незавершений backup output: {$output}\n");
+    if ($zip instanceof ZipArchive) {
+        $zip->close();
     }
+    cleanup_safe_cli_zip_output($safeOutput);
     app_log_exception($exception, 'Backup creation/validation failed');
     fwrite(STDERR, "Backup не створено: " . $exception->getMessage() . "\n");
     exit(1);

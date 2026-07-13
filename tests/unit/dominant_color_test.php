@@ -20,6 +20,11 @@ try {
     $color = get_image_dominant_color($tmpFile);
     assert_true(str_starts_with($color, '#'), 'Dominant color must start with #');
     assert_true(in_array($color, ['#ff0000', '#fe0000'], true), 'Dominant color of pure red image must be close to #ff0000 (allowing JPEG lossy compression variance)');
+    assert_equals(
+        null,
+        get_image_dominant_color($tmpFile, static fn (): bool => false),
+        'Dominant color extraction must fail closed when GD resampling fails'
+    );
 } finally {
     if (is_file($tmpFile)) {
         @unlink($tmpFile);

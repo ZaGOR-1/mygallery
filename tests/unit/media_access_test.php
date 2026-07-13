@@ -19,7 +19,7 @@ $mediaAccessFunctions = file_get_contents($root . DIRECTORY_SEPARATOR . 'app' . 
 assert_true(str_contains((string) $mediaController, 'album_is_private'), 'media.php must check album privacy');
 assert_true(str_contains((string) $mediaController, 'is_admin_logged_in()'), 'media.php must allow private media for logged-in admin only');
 assert_true(str_contains((string) $mediaController, 'media_share_token_allows_photo'), 'media.php must validate share tokens for private media');
-assert_true(str_contains((string) $mediaController, 'Cache-Control: private'), 'private media responses must not be public-cacheable');
+assert_true(str_contains((string) $mediaController, 'send_private_cache_headers();'), 'media responses must not remain public-cacheable across a privacy toggle');
 assert_true(str_contains((string) $mediaAccessFunctions, 'find_share_link_by_token($token)'), 'media access helper must use the shared token lookup');
 assert_false(str_contains((string) $mediaController, 'function media_share_token_allows_photo'), 'media controller must not redeclare extracted access helpers');
 

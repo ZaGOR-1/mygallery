@@ -24,6 +24,7 @@ $flashMessages = get_flash_messages();
     <link rel="icon" href="<?= h(local_url('assets/favicon.svg')) ?>" type="image/svg+xml">
 </head>
 <body>
+<a class="skip-link" href="#main-content">Перейти до основного вмісту</a>
 <header class="site-header">
     <div class="container header-inner">
         <a class="logo" href="<?= h(url()) ?>"><?= h(app_name()) ?></a>
@@ -47,10 +48,14 @@ $flashMessages = get_flash_messages();
     </div>
 </header>
 
-<main class="site-main">
+<main class="site-main" id="main-content" tabindex="-1">
     <div class="container">
         <?php foreach ($flashMessages as $message): ?>
-            <div class="alert alert-<?= h($message['type']) ?>">
+            <div class="alert alert-<?= h($message['type']) ?>"
+                 role="<?= ($message['type'] ?? '') === 'error' ? 'alert' : 'status' ?>"
+                 aria-live="<?= ($message['type'] ?? '') === 'error' ? 'assertive' : 'polite' ?>"
+                 aria-atomic="true">
                 <?= h($message['message']) ?>
             </div>
         <?php endforeach; ?>
+        <div class="visually-hidden" id="app-live-status" role="status" aria-live="polite" aria-atomic="true"></div>

@@ -2,7 +2,14 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/bootstrap.php';
+ob_start();
+try {
+    require_once __DIR__ . '/bootstrap.php';
+} catch (Throwable $exception) {
+    ob_end_clean();
+    fwrite(STDERR, 'Test bootstrap failed before suites: ' . $exception->getMessage() . PHP_EOL);
+    exit(1);
+}
 
 $testFiles = glob(__DIR__ . '/unit/*_test.php');
 $passed = 0;
@@ -26,7 +33,8 @@ foreach ($testFiles as $file) {
     }
 }
 
-echo "\nTests completed: $passed passed, $failed failed, $skipped skipped.\n";
+echo "\nTest suites completed: $passed passed, $failed failed, $skipped skipped; "
+    . (int) ($GLOBALS['mygallery_test_assertions'] ?? 0) . " assertions.\n";
 if (TESTS_DB_REQUIRED && $skipped > 0) {
     echo "Test DB is required, so skipped suites are a failure.\n";
     exit(1);
@@ -34,3 +42,5 @@ if (TESTS_DB_REQUIRED && $skipped > 0) {
 if ($failed > 0) {
     exit(1);
 }
+
+ob_end_flush();

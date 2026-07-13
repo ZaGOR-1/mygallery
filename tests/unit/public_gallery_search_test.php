@@ -22,6 +22,14 @@ assert_true(
 
 assert_true(
     str_contains($galleryFunctions, 'MATCH(photos.title, photos.description, photos.original_name)')
-        && str_contains($galleryFunctions, 'photos.original_name LIKE :search_original'),
-    'Original-name search must keep LIKE fallback even when FULLTEXT indexes exist'
+        && str_contains($galleryFunctions, "if (\$fulltextQuery !== '' && fulltext_index_exists(\$fulltextIndex))"),
+    'Original-name search must use the dedicated FULLTEXT index when it exists'
+);
+assert_false(
+    str_contains($galleryFunctions, 'AGAINST (:search_fulltext IN BOOLEAN MODE)\n                OR photos.title LIKE'),
+    'FULLTEXT search must not be combined with a leading-wildcard LIKE scan'
+);
+assert_true(
+    str_contains($galleryFunctions, 'photos.original_name LIKE :search_original'),
+    'Original-name search must retain LIKE only as the no-index/unsupported-query fallback'
 );

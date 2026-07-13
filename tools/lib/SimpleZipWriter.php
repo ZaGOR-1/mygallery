@@ -17,7 +17,7 @@ final class SimpleZipWriter
         $isStreamUrl = preg_match('/\A[a-z][a-z0-9+.-]*:\/\//i', $zipPath) === 1;
         if (!$isStreamUrl) {
             $dir = dirname($zipPath);
-            if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
+            if (!is_dir($dir) && !mkdir($dir, 0700, true)) {
                 throw new RuntimeException('Не вдалося створити папку для ZIP: ' . $dir);
             }
         }

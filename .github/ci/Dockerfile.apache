@@ -1,0 +1,11 @@
+FROM php:8.2-apache
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libjpeg62-turbo-dev libpng-dev libwebp-dev libzip-dev libonig-dev \
+    && docker-php-ext-configure gd --with-jpeg --with-webp \
+    && docker-php-ext-install -j"$(nproc)" pdo_mysql gd exif mbstring zip \
+    && a2enmod rewrite headers \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY .github/ci/apache-vhost.conf /etc/apache2/sites-available/000-default.conf
+WORKDIR /var/www/mygallery

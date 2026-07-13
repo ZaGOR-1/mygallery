@@ -24,7 +24,7 @@ function start_session(): void
 
     $sessionPath = storage_path('sessions');
 
-    if (!is_dir($sessionPath) && !@mkdir($sessionPath, 0755, true)) {
+    if (!ensure_private_directory($sessionPath)) {
         app_http_error('Не вдалося створити папку для PHP-сесій.', 500);
     }
 
@@ -42,7 +42,10 @@ function start_session(): void
     session_cache_limiter('');
     session_set_cookie_params(session_cookie_options());
 
-    if (!@session_start() || session_status() !== PHP_SESSION_ACTIVE) {
+    $previousUmask = umask(0077);
+    $started = @session_start();
+    umask($previousUmask);
+    if (!$started || session_status() !== PHP_SESSION_ACTIVE) {
         app_http_error('Не вдалося запустити PHP-сесію. Перевірте права на storage/sessions.', 500);
     }
 }
@@ -61,7 +64,11 @@ function send_security_headers(): void
     header_remove('X-Powered-By');
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');
-    header('Referrer-Policy: same-origin');
+    $referrerPolicy = (string) ($GLOBALS['mygallery_referrer_policy'] ?? 'same-origin');
+    if (!in_array($referrerPolicy, ['same-origin', 'no-referrer'], true)) {
+        $referrerPolicy = 'same-origin';
+    }
+    header('Referrer-Policy: ' . $referrerPolicy);
     header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
     header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
 
@@ -79,13 +86,63 @@ function get_admin_session_version(int $adminId): ?int
     return $version === false ? null : (int) $version;
 }
 
-function send_admin_cache_headers(): void
+/** @return list<string> */
+function private_cache_headers(): array
+{
+    return [
+        'Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma: no-cache',
+        'Expires: 0',
+    ];
+}
+
+function send_private_cache_headers(): void
 {
     if (headers_sent()) {
         return;
     }
 
-    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-    header('Pragma: no-cache');
-    header('Expires: 0');
+    foreach (private_cache_headers() as $cacheHeader) {
+        header($cacheHeader);
+    }
+}
+
+function send_admin_cache_headers(): void
+{
+    send_private_cache_headers();
+}
+
+
+function set_one_time_secret(string $key, string $value): void
+{
+    start_session();
+    if (!isset($_SESSION['one_time_secrets']) || !is_array($_SESSION['one_time_secrets'])) {
+        $_SESSION['one_time_secrets'] = [];
+    }
+    $_SESSION['one_time_secrets'][$key] = [
+        'value' => $value,
+        'created_at' => time(),
+    ];
+
+    if (count($_SESSION['one_time_secrets']) > 20) {
+        uasort($_SESSION['one_time_secrets'], static fn (array $a, array $b): int => (int) ($a['created_at'] ?? 0) <=> (int) ($b['created_at'] ?? 0));
+        while (count($_SESSION['one_time_secrets']) > 20) {
+            array_shift($_SESSION['one_time_secrets']);
+        }
+    }
+}
+
+function pull_one_time_secret(string $key, int $maximumAgeSeconds = 600): ?string
+{
+    start_session();
+    $entry = $_SESSION['one_time_secrets'][$key] ?? null;
+    unset($_SESSION['one_time_secrets'][$key]);
+
+    if (!is_array($entry)
+        || !is_string($entry['value'] ?? null)
+        || (time() - (int) ($entry['created_at'] ?? 0)) > $maximumAgeSeconds) {
+        return null;
+    }
+
+    return $entry['value'];
 }

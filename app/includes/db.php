@@ -4,6 +4,25 @@ declare(strict_types=1);
 
 function db_config(): array
 {
+    if (app_env() === 'test') {
+        $testName = trim((string) (getenv('TEST_DB_NAME') ?: ''));
+        $testUser = trim((string) (getenv('TEST_DB_USER') ?: ''));
+        if ($testName === '' || $testUser === '') {
+            throw new RuntimeException('APP_ENV=test requires explicit TEST_DB_NAME and TEST_DB_USER.');
+        }
+        if (getenv('ALLOW_UNSAFE_TEST_DB_NAME') !== '1' && !str_contains(strtolower($testName), 'test')) {
+            throw new RuntimeException('Refusing unsafe TEST_DB_NAME without a test marker.');
+        }
+
+        return [
+            'DB_HOST' => (string) (getenv('TEST_DB_HOST') ?: '127.0.0.1'),
+            'DB_PORT' => (int) (getenv('TEST_DB_PORT') ?: 3306),
+            'DB_NAME' => $testName,
+            'DB_USER' => $testUser,
+            'DB_PASSWORD' => (string) (getenv('TEST_DB_PASSWORD') ?: ''),
+        ];
+    }
+
     $path = project_root_path('config' . DIRECTORY_SEPARATOR . 'database.php');
 
     if (!file_exists($path)) {

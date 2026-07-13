@@ -14,14 +14,23 @@ jobs:
       fail-fast: false
       matrix:
         php: [ '8.2', '8.4' ]
+        database:
+          - name: mysql
+            image: mysql:8.0
+          - name: mariadb
+            image: mariadb:10.11
     services:
       mysql:
-        image: mysql:8.0
+        image: ${{ matrix.database.image }}
         env:
-          MYSQL_DATABASE: my_photo_gallery
+          MYSQL_DATABASE: my_photo_gallery_test
           MYSQL_USER: gallery_user
           MYSQL_PASSWORD: gallery_password
           MYSQL_ROOT_PASSWORD: root_password
+          MARIADB_DATABASE: my_photo_gallery_test
+          MARIADB_USER: gallery_user
+          MARIADB_PASSWORD: gallery_password
+          MARIADB_ROOT_PASSWORD: root_password
         ports:
           - 3306:3306
         options: >-
@@ -30,21 +39,26 @@ jobs:
           --health-timeout=5s
           --health-retries=10
     env:
-      APP_ENV: local
+      APP_ENV: test
       APP_DEBUG: "false"
       APP_URL: http://mygallery
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
-      DB_NAME: my_photo_gallery
+      DB_NAME: my_photo_gallery_test
       DB_USER: gallery_user
       DB_PASSWORD: gallery_password
+      TEST_DB_HOST: 127.0.0.1
+      TEST_DB_PORT: 3306
+      TEST_DB_NAME: my_photo_gallery_test
+      TEST_DB_USER: gallery_user
+      TEST_DB_PASSWORD: gallery_password
       REQUIRE_TEST_DB: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
         with:
           php-version: ${{ matrix.php }}
           extensions: mbstring, fileinfo, gd, pdo_mysql, exif, zip
@@ -61,7 +75,7 @@ jobs:
       - name: Wait for MySQL
         run: |
           for i in {1..30}; do
-            php -r 'try { new PDO("mysql:host=127.0.0.1;port=3306;dbname=my_photo_gallery;charset=utf8mb4", "gallery_user", "gallery_password", [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]); exit(0); } catch (Throwable $e) { fwrite(STDERR, "."); exit(1); }' && exit 0
+            php -r 'try { new PDO("mysql:host=127.0.0.1;port=3306;dbname=my_photo_gallery_test;charset=utf8mb4", "gallery_user", "gallery_password", [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]); exit(0); } catch (Throwable $e) { fwrite(STDERR, "."); exit(1); }' && exit 0
             sleep 2
           done
           echo "MySQL did not become ready in time" >&2
@@ -69,7 +83,7 @@ jobs:
 
       - name: Load schema and migrations
         run: |
-          mysql -h127.0.0.1 -P3306 -ugallery_user -pgallery_password my_photo_gallery < database/schema.sql
+          mysql -h127.0.0.1 -P3306 -ugallery_user -pgallery_password my_photo_gallery_test < database/schema.sql
           php tools/migrate.php
 
       - name: Run self-check
@@ -80,11 +94,15 @@ jobs:
 
       - name: Verify backup and restore round-trip
         run: |
+          php tests/fixtures/seed_backup_fixture.php /tmp/mygallery_fixture_snapshot.json
+          php tests/fixtures/assert_backup_fixture.php /tmp/mygallery_fixture_snapshot.json
           php tools/backup.php --output=/tmp/mygallery_ci_backup.zip
           php tools/verify_backup.php /tmp/mygallery_ci_backup.zip
           printf 'RESTORE\n' | php tools/restore.php /tmp/mygallery_ci_backup.zip
+          php tests/fixtures/assert_backup_fixture.php /tmp/mygallery_fixture_snapshot.json
           php tools/self_check.php
           rm /tmp/mygallery_ci_backup.zip
+          rm /tmp/mygallery_fixture_snapshot.json
 
       - name: Run HTTP smoke tests
         run: |
@@ -153,3 +171,104 @@ jobs:
           $zip->close();
           echo "Release ZIP content verification passed" . PHP_EOL;
           '
+
+      - name: Verify release provenance and reproducibility
+        run: |
+          php -r '
+          $zips = glob("dist/mygallery_*_release.zip") ?: [];
+          if (count($zips) !== 1) exit(1);
+          $expected = explode(" ", trim((string) file_get_contents($zips[0] . ".sha256")))[0] ?? "";
+          $provenance = json_decode((string) file_get_contents($zips[0] . ".provenance.json"), true);
+          if (!hash_equals(hash_file("sha256", $zips[0]), $expected)
+              || !is_array($provenance)
+              || !hash_equals($expected, (string) ($provenance["artifact_sha256"] ?? ""))
+              || ($provenance["source_commit_reachable"] ?? false) !== true
+              || ($provenance["source_dirty"] ?? true) !== false) {
+              fwrite(STDERR, "Release provenance verification failed" . PHP_EOL);
+              exit(1);
+          }
+          '
+          php tools/build_release.php --output=/tmp/mygallery_repro_a.zip
+          php tools/build_release.php --output=/tmp/mygallery_repro_b.zip
+          cmp /tmp/mygallery_repro_a.zip /tmp/mygallery_repro_b.zip
+          rm /tmp/mygallery_repro_a.zip*
+          rm /tmp/mygallery_repro_b.zip*
+
+  webserver-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        server: [ apache, nginx ]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: my_photo_gallery_web_test
+          MYSQL_USER: gallery_user
+          MYSQL_PASSWORD: gallery_password
+          MYSQL_ROOT_PASSWORD: root_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Prepare webserver test database
+        run: |
+          cp config/database.example.php config/database.php
+          mysql -h127.0.0.1 -P3306 -ugallery_user -pgallery_password my_photo_gallery_web_test < database/schema.sql
+          sudo chown -R 33:33 storage public/uploads
+
+      - name: Build and start Apache
+        if: matrix.server == 'apache'
+        run: |
+          docker build -f .github/ci/Dockerfile.apache -t mygallery-apache-ci .
+          docker run -d --name gallery-apache --add-host=host.docker.internal:host-gateway -p 8081:80 \
+            -v "$PWD:/var/www/mygallery" \
+            -e APP_ENV=local -e APP_DEBUG=false -e APP_URL=http://127.0.0.1:8081 \
+            -e DB_HOST=host.docker.internal -e DB_PORT=3306 -e DB_NAME=my_photo_gallery_web_test \
+            -e DB_USER=gallery_user -e DB_PASSWORD=gallery_password mygallery-apache-ci
+
+      - name: Build and start Nginx with PHP-FPM
+        if: matrix.server == 'nginx'
+        run: |
+          docker network create gallery-ci
+          docker build -f .github/ci/Dockerfile.fpm -t mygallery-fpm-ci .
+          docker run -d --name gallery-fpm --network gallery-ci --add-host=host.docker.internal:host-gateway \
+            -v "$PWD:/var/www/mygallery" \
+            -e APP_ENV=local -e APP_DEBUG=false -e APP_URL=http://127.0.0.1:8081 \
+            -e DB_HOST=host.docker.internal -e DB_PORT=3306 -e DB_NAME=my_photo_gallery_web_test \
+            -e DB_USER=gallery_user -e DB_PASSWORD=gallery_password mygallery-fpm-ci
+          docker run -d --name gallery-nginx --network gallery-ci -p 8081:80 \
+            -v "$PWD:/var/www/mygallery:ro" \
+            -v "$PWD/.github/ci/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine
+
+      - name: Verify real webserver security behavior
+        run: |
+          for i in {1..60}; do
+            curl --fail --silent http://127.0.0.1:8081/index.php -o /tmp/web-index.html && break
+            sleep 2
+          done
+          curl --fail --silent --dump-header /tmp/web-headers.txt http://127.0.0.1:8081/index.php -o /tmp/web-index.html
+          grep -qi '^Content-Security-Policy:' /tmp/web-headers.txt
+          grep -qi '^X-Content-Type-Options: nosniff' /tmp/web-headers.txt
+          test "$(curl --silent --output /tmp/upload-denied --write-out '%{http_code}' http://127.0.0.1:8081/uploads/large/.gitkeep)" = '403'
+          test "$(curl --silent --output /tmp/assets-dotfile-denied --write-out '%{http_code}' http://127.0.0.1:8081/assets/.htaccess)" = '403'
+          curl --fail --silent http://127.0.0.1:8081/assets/css/style.css -o /tmp/web-style.css
+          test "$(curl --silent --output /tmp/web-missing --write-out '%{http_code}' http://127.0.0.1:8081/missing-route)" = '404'
+          test "$(curl --silent --output /tmp/web-unknown-php --write-out '%{http_code}' http://127.0.0.1:8081/unknown.php)" = '404'
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs gallery-apache 2>/dev/null || docker logs gallery-fpm 2>/dev/null || true
+
+      - name: Stop webserver containers
+        if: always()
+        run: |
+          docker rm -f gallery-apache gallery-nginx gallery-fpm 2>/dev/null || true
+          docker network rm gallery-ci 2>/dev/null || true

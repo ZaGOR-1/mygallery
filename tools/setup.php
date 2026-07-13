@@ -72,13 +72,15 @@ $args = setup_positional_args($argv);
 $username = $args[0] ?? ask('Логін адміністратора: ');
 $password = read_admin_password($options);
 
-if ($username === '') {
-    fwrite(STDERR, "Вкажіть логін адміністратора.\n");
+$usernameLength = function_exists('mb_strlen') ? mb_strlen($username, 'UTF-8') : strlen($username);
+if ($usernameLength < 1 || $usernameLength > 100 || preg_match('/[\x00-\x1F\x7F]/u', $username) === 1) {
+    fwrite(STDERR, "Логін має містити 1–100 друкованих символів без control characters.\n");
     exit(1);
 }
 
-if (strlen($password) < 8) {
-    fwrite(STDERR, "Пароль має містити щонайменше 8 символів.\n");
+$passwordLength = function_exists('mb_strlen') ? mb_strlen($password, 'UTF-8') : strlen($password);
+if ($passwordLength < 12) {
+    fwrite(STDERR, "Пароль має містити щонайменше 12 символів. Краще використовуйте довгу passphrase.\n");
     exit(1);
 }
 

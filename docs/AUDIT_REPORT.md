@@ -1,16 +1,47 @@
 # Audit Report
 
-Актуально для MyGallery 6.4.23. Повний аудит робочої копії від 2026-07-10 збережений у кореневому `FULL_PROJECT_AUDIT.md`; архівний аудит 2026-06-16 — у `docs/AUDIT_FINDINGS_2026-06-16.md`.
+Актуально для MyGallery 6.4.27. Канонічне джерело — [MYGALLERY_AUDIT.md](../MYGALLERY_AUDIT.md), аудит 2026-07-13 для Git commit `da2a729d401e0476c19661ccb736292fa4e3da45`; SHA-256 source artifact: `032d44d076592bb46a699c9a8546c02345c9972bf79b2fff924ccf4c078f71ce`.
+
+## Статус findings 2026-07-13
+
+| Severity | Знайдено | Поточний статус |
+|---|---:|---|
+| Critical | 0 | Не знайдено |
+| High | 1 | H-01 виправлено у v6.4.26 |
+| Medium | 4 | M-01–M-04 виправлено у v6.4.26 |
+| Low | 8 | L-01 виправлено у v6.4.26; L-02–L-08 виправлено у v6.4.27 |
+| Informational | 1 | I-01 виправлено у v6.4.27 canonical link/identity перевіркою |
+
+H-01 закрито hash-gated cleanup policy для legacy originals. M-01 прив’язує release payload до exact Git tree/non-ignored dirty inventory; M-02 атомарно публікує перевірені WebP/AVIF і прибирає stale variants; M-03 додає resumable trash restore phases та CLI recovery; M-04 задає UTF-8 ZIP flags, повний Windows device-name guard і нову cache fingerprint version.
+
+Low remediation серіалізує album reorder через stable `FOR UPDATE`, робить cooldown і maintenance I/O fail-closed, усуває Nginx dotfile bypass, перевіряє GD resample, захищає restore journal приватним atomic writer та переводить share audit на bounded checked rotation із fallback. I-01 regression перевіряє наявність source, Markdown link, Git commit, SHA-256 і production release exclusion.
+
+## Статус findings 2026-07-12
+
+Усі 12 Medium, 6 Low та 2 Informational знахідки M-01–M-12/L-01–L-06/I-01–I-02 реалізаційно закрито у v6.4.25. До Medium hardening додано transactional album/cover locks, explicit media modes, synchronized log rotation, canonical IPv6 identities, accessibility/upload feedback, strict Nginx routes та reproducible release ZIP із checksum/provenance sidecars. Production deployment усе одно потребує зеленого required-DB CI і staging перевірок.
 
 ## Статус findings 2026-07-10
 
 | Severity | Знайдено | Поточний статус |
 |---|---:|---|
 | Critical | 0 | Не знайдено |
-| High | 3 | H-01–H-03 виправлено у v6.4.21 |
-| Medium | 8 | M-01–M-08 виправлено у v6.4.22 |
-| Low | 6 | L-01–L-06 виправлено у v6.4.22 |
-| Informational | 5 | I-01–I-05 закриті/підтверджені у v6.4.23 |
+| High | 1 | H-01 незалежного аудиту виправлено у v6.4.24 |
+| Medium | 14 | M-01–M-14 незалежного аудиту виправлено у v6.4.24 |
+| Low | 16 | Не входили до цього remediation; лишаються backlog/risk review |
+| Informational | 4 | I-01 operational, I-02/I-03 docs/maintainability, I-04 server inventory |
+
+## Що закрито у v6.4.24
+
+- fail-closed `TEST_DB_*` isolation незалежно від звичайного DB config; warnings/deprecations fail tests; session regeneration fail-closed;
+- no-store/no-referrer для share/private HTML і no-store для media після privacy toggle;
+- exact-source album ZIP без fallback/skip, checked add/close та повторна count/size/SHA-256 verification;
+- non-blocking per-key/global ZIP locks, shared optimized cache, generation time bound і cache byte quota;
+- safe atomic `.zip` output, free-disk preflight та streaming ZIP64 `ZipArchive` для backup/release;
+- partial trash rollback/purge зберігає unresolved manifest/status;
+- tag mutations блокують rows і bump-ять affected `photos.lock_version`; admin album create strict;
+- XFF chain розбирається справа наліво з відкиданням trusted hops;
+- CI: PHP 8.2/8.4 × MySQL/MariaDB, non-empty Unicode/JPEG fixture, post-restore row/hash comparison, Apache/Nginx smoke;
+- production DB docs розділяють runtime CRUD і maintenance DDL users.
 
 ## Що закрито у v6.4.23
 
@@ -37,14 +68,14 @@
 
 ## Фактично перевірено локально
 
-- PHP 8.2 і 8.4: lint 82 PHP-файлів, 0 errors;
-- PHP 8.2 і 8.4: `php tests/run.php` — 24 passed, 0 failed, 2 skipped;
+- PHP 8.2 і 8.4: lint 93 PHP-файлів, 0 syntax errors;
+- PHP 8.2 і 8.4: `php tests/run.php` — 31 passed, 0 failed, 2 skipped, 761 assertions на кожній версії;
 - skipped: DB-backed album privacy і share schema/runtime suites, бо локальний `config/database.php` відсутній;
-- `REQUIRE_TEST_DB=1` з відсутньою DB коректно повернув non-zero через 2 skips;
+- `REQUIRE_TEST_DB=1` без explicit `TEST_DB_*` і окремий probe з небезпечним non-test DB name коректно завершили runner з exit code 1 до запуску suites;
 - `node --check public/assets/js/main.js` пройдено;
-- `tools/build_release.php`: `mygallery_6.4.23_release.zip`, 117 entries; internal verifier і незалежне читання дали 0 stream errors, 0 forbidden internal/secret/media/runtime entries та 0 missing required v6.4.23 entries;
+- default release коректно заблоковано через dirty worktree; deliberate `--allow-dirty` v6.4.27 build створив 122 entries, пройшов internal та independent stream readback, sidecar SHA-256 check і перевірку відсутності audit/config/media payload;
 - `tools/self_check.php` очікувано повернув non-zero: `config/database.php missing`;
-- integrity/fault tests покривають corrupt/missing/hash/inventory backup, restore rollback/commit recovery, CSRF replay/login rotation, cache policies, filename corpus, symlink containment, maintenance lock, share access/constraint, CI contract, bulk reporting і short ZIP writes.
+- integrity/fault tests покривають corrupt/missing/hash/inventory backup, safe CLI ZIP output, restore/trash partial recovery, CSRF replay/login rotation, session-regeneration failure, cache/privacy policies, exact album ZIP verification/locking, filename corpus, symlink containment, maintenance lock, tag/album concurrency contract, trusted proxy chains, share access/constraint, CI contract, bulk reporting і short ZIP writes.
 
 ## Не перевірено в цьому середовищі
 
@@ -55,4 +86,4 @@
 - manual login/upload/EXIF/private/share/trash/download/browser regression;
 - Linux permission assertions на фактичному production filesystem.
 
-Тому code findings закриті, але production deploy залишається умовним до проходження environment checklist вище, `tools/self_check.php` без помилок і DB tests без skips.
+Усі code findings H-01, M-01–M-04, L-01–L-08 та I-01 останнього аудиту реалізаційно закриті. Production environment gates лишаються: deploy потребує `tools/self_check.php` без помилок, required DB tests без skips та цільових HTTP/Linux/manual перевірок.

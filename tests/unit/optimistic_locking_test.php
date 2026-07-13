@@ -18,8 +18,19 @@ assert_true(
 );
 
 assert_true(
-    str_contains($photoService, "\$input['lock_version'] ?? null"),
+    str_contains($photoService, "request_int(\$input, 'lock_version', null, 1)"),
     'Photo edit must reject missing optimistic lock tokens'
+);
+
+assert_true(
+    str_contains($photoService, 'SELECT album_id, lock_version FROM photos WHERE id = ? FOR UPDATE')
+        && str_contains($photoService, 'find_or_create_album($newAlbumName, 0, $pdo)'),
+    'Photo edit must lock/check its revision before transactionally creating a requested album'
+);
+assert_true(
+    str_contains($photoService, 'SELECT album_id FROM photos WHERE id = ? FOR UPDATE')
+        && str_contains($photoService, 'SELECT id FROM albums WHERE id = ? FOR UPDATE'),
+    'Album cover updates must lock the cover photo and album before revalidating membership'
 );
 
 assert_true(
@@ -52,6 +63,17 @@ if (defined('TESTS_DB_AVAILABLE') && TESTS_DB_AVAILABLE) {
             InvalidArgumentException::class,
             'the second same-revision update must be rejected'
         );
+        $orphanAlbum = 'stale-album-' . bin2hex(random_bytes(6));
+        $staleInput = $input;
+        $staleInput['new_album_name'] = $orphanAlbum;
+        assert_throws(
+            static fn () => update_photo_metadata(db(), $photoId, $staleInput),
+            InvalidArgumentException::class,
+            'a stale editor requesting a new album must be rejected'
+        );
+        $albumCheck = $pdo->prepare('SELECT COUNT(*) FROM albums WHERE name = ?');
+        $albumCheck->execute([$orphanAlbum]);
+        assert_equals(0, (int) $albumCheck->fetchColumn(), 'stale photo edit must not leave an empty album side effect');
     } finally {
         $delete = $pdo->prepare('DELETE FROM photos WHERE id = ?');
         $delete->execute([$photoId]);

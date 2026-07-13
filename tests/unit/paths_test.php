@@ -48,3 +48,6 @@ $validName = random_photo_name();
 $safePath = safe_upload_file_path('large', $validName);
 assert_true($safePath !== null, 'safe_upload_file_path should not return null for valid paths');
 assert_true(str_starts_with($safePath, public_path()), 'Safe upload path should be inside public path');
+
+$configuredAppUrl = rtrim((string) app_config()['APP_URL'], '/');
+assert_equals($configuredAppUrl . '/share.php?token=test', absolute_url('share.php?token=test'), 'copied share links must include the configured APP_URL origin');
